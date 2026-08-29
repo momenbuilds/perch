@@ -46,7 +46,17 @@ func tracePath(rect: CGRect, shoulder s: CGFloat, bottom b: CGFloat, progress: C
             controlPoint1: CGPoint(x: rect.minX + s, y: rect.minY),
             controlPoint2: CGPoint(x: rect.minX + s, y: rect.minY))
     let span = (rect.maxX - s - b) - (rect.minX + s + b)
-    p.line(to: CGPoint(x: rect.minX + s + b + span * progress, y: rect.minY))
+    if progress <= 1 {
+        p.line(to: CGPoint(x: rect.minX + s + b + span * progress, y: rect.minY))
+        return p
+    }
+    // Past the bottom edge the trace turns the corner and climbs the right-hand side.
+    p.line(to: CGPoint(x: rect.maxX - s - b, y: rect.minY))
+    p.curve(to: CGPoint(x: rect.maxX - s, y: rect.minY + b),
+            controlPoint1: CGPoint(x: rect.maxX - s, y: rect.minY),
+            controlPoint2: CGPoint(x: rect.maxX - s, y: rect.minY))
+    let climb = (rect.maxY - (rect.minY + b)) * min(progress - 1, 1)
+    p.line(to: CGPoint(x: rect.maxX - s, y: rect.minY + b + climb))
     return p
 }
 
@@ -61,9 +71,17 @@ func render(size n: CGFloat) -> NSImage {
     ground.addClip()
 
     // Screen: dark, lit from the top.
-    NSGradient(colors: [NSColor(srgbRed: 0.114, green: 0.125, blue: 0.149, alpha: 1),
-                        NSColor(srgbRed: 0.035, green: 0.039, blue: 0.051, alpha: 1)])?
+    NSGradient(colors: [NSColor(srgbRed: 0.122, green: 0.133, blue: 0.161, alpha: 1),
+                        NSColor(srgbRed: 0.027, green: 0.031, blue: 0.043, alpha: 1)])?
         .draw(in: NSRect(x: 0, y: 0, width: n, height: n), angle: -90)
+
+    // A breath of the accent behind the island, as if a session were lighting it.
+    if let glow = NSGradient(colors: [accent.withAlphaComponent(0.20),
+                                      accent.withAlphaComponent(0)]) {
+        glow.draw(fromCenter: CGPoint(x: n * 0.5, y: n * 0.52), radius: 0,
+                  toCenter: CGPoint(x: n * 0.5, y: n * 0.52), radius: n * 0.52,
+                  options: [])
+    }
 
     // Bezel band across the top, the edge the island is welded to.
     let bezelHeight = n * 0.185
@@ -80,10 +98,17 @@ func render(size n: CGFloat) -> NSImage {
 
     // Ambient glow beneath, as if a session were running.
     ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -n * 0.03), blur: n * 0.10,
-                  color: accent.withAlphaComponent(0.38).cgColor)
-    NSColor(srgbRed: 0.006, green: 0.006, blue: 0.01, alpha: 1).setFill()
+    ctx.setShadow(offset: CGSize(width: 0, height: -n * 0.03), blur: n * 0.11,
+                  color: accent.withAlphaComponent(0.42).cgColor)
+    NSColor.black.setFill()
     islandPath(rect: body, shoulder: shoulder, bottom: bottom).fill()
+    ctx.restoreGState()
+
+    // The body is not flat black: it carries the faintest top-down sheen.
+    ctx.saveGState()
+    islandPath(rect: body, shoulder: shoulder, bottom: bottom).addClip()
+    NSGradient(colors: [NSColor(white: 0.09, alpha: 1), NSColor(white: 0.005, alpha: 1)])?
+        .draw(in: body, angle: -90)
     ctx.restoreGState()
 
     let edge = islandPath(rect: body, shoulder: shoulder, bottom: bottom)
@@ -95,7 +120,7 @@ func render(size n: CGFloat) -> NSImage {
     let inset = n * 0.028
     let traceRect = body.insetBy(dx: inset, dy: inset)
     let trace = tracePath(rect: traceRect, shoulder: shoulder * 0.75,
-                          bottom: bottom * 0.72, progress: 0.62)
+                          bottom: bottom * 0.72, progress: 1.30)
     trace.lineWidth = n * 0.026
     trace.lineCapStyle = .round
     trace.lineJoinStyle = .round
@@ -104,6 +129,14 @@ func render(size n: CGFloat) -> NSImage {
     accent.setStroke()
     trace.stroke()
     ctx.restoreGState()
+
+    // Vignette, so the corners settle back.
+    if let vignette = NSGradient(colors: [NSColor(white: 0, alpha: 0),
+                                          NSColor(white: 0, alpha: 0.32)]) {
+        vignette.draw(fromCenter: CGPoint(x: n * 0.5, y: n * 0.5), radius: n * 0.42,
+                      toCenter: CGPoint(x: n * 0.5, y: n * 0.5), radius: n * 0.78,
+                      options: [])
+    }
 
     image.unlockFocus()
     return image

@@ -10,7 +10,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `--demo` parks a seeded island off the bottom of the screen so its layout can be
     /// captured for review without disturbing anything the user is looking at.
     private let isDemo = CommandLine.arguments.contains("--demo")
-        || CommandLine.arguments.contains("--shoot")
     private lazy var store = AppStore(persists: !isDemo)
     private let ui = UIState()
     private let monitor = SystemMonitor()
@@ -21,6 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastPointer = CGPoint(x: -1, y: -1)
     private var lastIslandSize = CGSize.zero
     private var lastAlignment: IslandAlignment = .center
+    private var statusMenu: NSMenu?
+    private var addFocusObserver: NSObjectProtocol?
+    private var lastHidden = false
     private var outsideClickMonitor: Any?
     private var insideClickMonitor: Any?
     private var keyMonitor: Any?
@@ -40,11 +42,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 panel.setFrameOrigin(NSPoint(x: screen.frame.minX,
                                              y: screen.frame.minY - panel.frame.height - 40))
             }
-            if let index = CommandLine.arguments.firstIndex(of: "--shoot") {
-                let directory = CommandLine.arguments.count > index + 1
-                    ? CommandLine.arguments[index + 1] : "."
-                startShooting(into: directory)
-            }
             return
         }
         makeStatusItem()
@@ -62,6 +59,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.syncMenuBarLoad()
                 self.refreshStatusTitle()
                 if self.store.settings.alignment != self.lastAlignment { self.reposition() }
+                if self.store.settings.isIslandHidden != self.lastHidden {
+                    self.lastHidden = self.store.settings.isIslandHidden
+                    self.applyIslandVisibility()
+                }
             }
             .store(in: &bag)
 
@@ -86,66 +87,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Offscreen capture
 
-    /// Walks the island through its states and writes each one to a PNG by asking the
-    /// hosting view to draw itself. The window stays parked off the bottom of the
-    /// screen throughout, so nothing the user is looking at changes and the pointer is
-    /// never touched — and unlike `ImageRenderer`, this captures the real AppKit-backed
-    /// controls (fields, menus, scroll views).
-    private func startShooting(into directory: String) {
-        let folder = URL(fileURLWithPath: directory, isDirectory: true)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-
-        var steps: [(String, () -> Void)] = [
-            ("11-tasks-streak", { self.ui.tab = .streak }),
-            ("12-tasks-stats", { self.ui.tab = .stats }),
-            ("13-tasks-system", { self.ui.tab = .system }),
-            ("14-tasks-settings", { self.ui.tab = .settings }),
-            ("15-group-collapsed", {
-                self.ui.tab = .streak
-                if let first = self.store.groups.first { self.store.toggleGroup(first.id) }
-            }),
-            ("16-search", {
-                if let first = self.store.groups.first { self.store.toggleGroup(first.id) }
-                self.store.search = "client"
-            }),
-            ("17-filter-done", {
-                self.store.search = ""
-                self.store.toggleDone(self.store.tasks[1].id)
-            }),
-            ("18-running", {
-                self.store.start()
-            }),
-            ("19-collapsed", {
-                self.store.pause()
-                self.ui.isPinned = false
-            })
-        ]
-
-        func next(_ delay: Double) {
-            guard !steps.isEmpty else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { exit(0) }
-                return
-            }
-            let (name, mutate) = steps.removeFirst()
-            mutate()
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                self.capture(name: name, into: folder)
-                next(0.7)
-            }
-        }
-        next(1.2)
-    }
-
-    private func capture(name: String, into folder: URL) {
-        guard let host = panel.contentView else { return }
-        let bounds = host.bounds
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: bounds) else { return }
-        host.cacheDisplay(in: bounds, to: rep)
-        guard let png = rep.representation(using: .png, properties: [:]) else { return }
-        try? png.write(to: folder.appendingPathComponent("\(name).png"))
-        print("  ✓ \(name).png")
-    }
-
     // MARK: Panel
 
     private func makePanel() {
@@ -160,7 +101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = host
 
         reposition()
-        panel.orderFrontRegardless()
+        lastHidden = store.settings.isIslandHidden
+        if !store.settings.isIslandHidden { panel.orderFrontRegardless() }
     }
 
     private func reposition() {
@@ -196,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateClickThrough() {
-        guard let panel else { return }
+        guard let panel, !store.settings.isIslandHidden else { return }
 
         let pointer = NSEvent.mouseLocation
         // Nothing moved and nothing resized: there is no work to do.
@@ -313,6 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let mods = UInt32(controlKey | optionKey)
         HotKeyCenter.shared.register(key: kVK_Space, modifiers: mods) { [weak self] in
             guard let self else { return }
+            if self.store.settings.isIslandHidden { self.toggleIslandHidden() }
             withAnimation(Theme.openSpring) { self.ui.togglePin() }
         }
         HotKeyCenter.shared.register(key: kVK_ANSI_P, modifiers: mods) { [weak self] in
@@ -324,10 +267,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeyCenter.shared.register(key: kVK_ANSI_R, modifiers: mods) { [weak self] in
             self?.store.reset()
         }
+        // Reachable even over a full-screen app, where the menu bar itself is hidden.
+        HotKeyCenter.shared.register(key: kVK_ANSI_H, modifiers: mods) { [weak self] in
+            self?.toggleIslandHidden()
+        }
         HotKeyCenter.shared.register(key: kVK_ANSI_N, modifiers: mods) { [weak self] in
             guard let self else { return }
             // A non-activating panel will not take key focus on its own, so a hot key
             // that wants the caret has to activate the app first.
+            if self.store.settings.isIslandHidden { self.toggleIslandHidden() }
             NSApp.activate(ignoringOtherApps: true)
             self.panel.makeKeyAndOrderFront(nil)
             withAnimation(Theme.openSpring) { self.ui.isPinned = true }
@@ -344,12 +292,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ui.wantsAddFocus = true
             return
         }
-        var token: NSObjectProtocol?
-        token = NotificationCenter.default.addObserver(
+        if let existing = addFocusObserver {
+            NotificationCenter.default.removeObserver(existing)
+            addFocusObserver = nil
+        }
+        addFocusObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main
-        ) { _ in
-            if let token { NotificationCenter.default.removeObserver(token) }
-            MainActor.assumeIsolated { self.ui.wantsAddFocus = true }
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let token = self.addFocusObserver {
+                    NotificationCenter.default.removeObserver(token)
+                    self.addFocusObserver = nil
+                }
+                self.ui.wantsAddFocus = true
+            }
         }
     }
 
@@ -363,23 +320,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func makeStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+
+        // Left click tucks the island away and brings it back — the island covers the
+        // middle of the menu bar, so there has to be a one-click way to get rid of it.
+        // Right click opens the menu.
+        if let button = statusItem.button {
+            button.target = self
+            button.action = #selector(statusItemClicked)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
         refreshStatusTitle()
 
         let menu = NSMenu()
+        menu.addItem(item("Show / Hide Island", #selector(toggleIslandHidden), ""))
+        menu.addItem(.separator())
         menu.addItem(item("Start / Pause", #selector(toggleTimer), "p"))
         menu.addItem(item("Skip Phase", #selector(skipPhase), "s"))
         menu.addItem(item("Reset Phase", #selector(resetPhase), "r"))
         menu.addItem(.separator())
         menu.addItem(item("Open Panel", #selector(openPanel), " "))
-        menu.addItem(item("Show Island", #selector(showIsland), ""))
-        menu.addItem(item("Hide Island", #selector(hideIsland), ""))
         menu.addItem(.separator())
         menu.addItem(item("Export Data…", #selector(exportData), ""))
         menu.addItem(item("Reveal Data Folder", #selector(revealData), ""))
         menu.addItem(item("Clear All Data", #selector(clearData), ""))
         menu.addItem(withTitle: "Quit Perch",
                      action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        statusItem.menu = menu
+        statusMenu = menu
+    }
+
+    @objc private func statusItemClicked() {
+        let isRightClick = NSApp.currentEvent?.type == .rightMouseUp
+            || NSApp.currentEvent?.modifierFlags.contains(.control) == true
+        if isRightClick {
+            guard let menu = statusMenu, let button = statusItem.button else { return }
+            menu.popUp(positioning: nil,
+                       at: NSPoint(x: 0, y: button.bounds.height + 4),
+                       in: button)
+        } else {
+            toggleIslandHidden()
+        }
+    }
+
+    @objc private func toggleIslandHidden() {
+        store.settings.isIslandHidden.toggle()
+        applyIslandVisibility()
+    }
+
+    private func applyIslandVisibility() {
+        guard let panel else { return }
+        if store.settings.isIslandHidden {
+            ui.collapse()
+            panel.orderOut(nil)
+        } else {
+            panel.orderFrontRegardless()
+        }
+        refreshStatusTitle()
     }
 
     private func item(_ title: String, _ action: Selector, _ key: String) -> NSMenuItem {
@@ -390,8 +385,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshStatusTitle() {
         guard let button = statusItem?.button else { return }
-        button.image = NSImage(systemSymbolName: store.phase.symbol,
-                               accessibilityDescription: "Perch")
+        let symbol = store.settings.isIslandHidden ? "eye.slash" : store.phase.symbol
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Perch")
+        button.toolTip = store.settings.isIslandHidden
+            ? "Perch — click to show the island"
+            : "Perch — click to hide the island, right-click for more" 
         button.imagePosition = .imageLeading
         if store.isRunning {
             button.title = " \(store.clockText)"
@@ -427,8 +425,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func revealData() {
         NSWorkspace.shared.activateFileViewerSelecting([Persistence.fileURL])
     }
-    @objc private func showIsland()  { panel.orderFrontRegardless() }
-    @objc private func hideIsland()  { panel.orderOut(nil) }
     @objc private func openPanel() {
         panel.orderFrontRegardless()
         withAnimation(Theme.openSpring) { ui.isPinned = true }

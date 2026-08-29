@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="Assets/screenshot-pill.png" width="560" alt="The collapsed pill">
+  <img src="Assets/demo.gif" width="760" alt="Perch in use">
 </p>
 
 Perch hangs a black, bezel-welded island from the top edge of your display. Idle, it is
@@ -83,30 +83,41 @@ nothing while the pointer is still.
 - Confetti when a focus session lands, because you earned it.
 - Open at login.
 
-## Requirements
+## Install
 
-- macOS 13 or later
-- Swift 6 toolchain (Xcode 15+ command line tools)
-
-## Run it
+Works on **Intel and Apple Silicon** — `build_app.sh` produces a universal binary, so the
+same app runs natively on both.
 
 ```bash
-swift run
+git clone https://github.com/momenbuilds/perch.git
+cd perch
+./build_app.sh --install
 ```
 
-## Install it as a background app
+That builds `Perch.app`, copies it to `/Applications` and launches it. It is an
+`LSUIElement` app: no Dock icon, just the island and a menu-bar item. Turn on **Open at
+login** in the island's Settings tab to have it there every morning.
 
-```bash
-./build_app.sh
-open build/Perch.app
-```
+| Command | What it does |
+| --- | --- |
+| `./build_app.sh` | Universal build into `build/Perch.app` |
+| `./build_app.sh --native` | Only this machine's architecture — much faster to iterate |
+| `./build_app.sh --install` | Build, install into `/Applications`, launch |
+| `swift run` | Run straight from source |
 
-That produces `build/Perch.app`, an `LSUIElement` app: no Dock icon, just the island and
-a menu-bar item. Drag it to `/Applications`, then turn on **Open at login** in the
-island's Settings tab.
+Requires **macOS 13 or later** and the Swift 6 toolchain (Xcode 15+ command line tools —
+`xcode-select --install`).
 
-Notifications and *Open at login* need the bundled app — they are no-ops under
+The app is signed ad-hoc rather than notarised, so the first launch may need
+**right-click → Open** (or System Settings → Privacy & Security → Open Anyway).
+Notifications and *Open at login* need the bundled app; they are no-ops under
 `swift run`, which has no bundle for the system to register.
+
+### The island is in my way
+
+Click the menu-bar icon to tuck it away, click again to bring it back — or press
+`⌃⌥H` from anywhere, which also works over full-screen apps where the menu bar itself is
+hidden. You can also move it to the left or right edge in Settings.
 
 ## Using it
 
@@ -115,6 +126,7 @@ Notifications and *Open at login* need the bundled app — they are no-ops under
 | Move the pointer onto the pill | Springs open into the panel |
 | Click anywhere in the panel | Keeps it open (it behaves like a popover) |
 | Click outside, or press `esc` | Closes it |
+| Menu-bar icon | Hides the island; click again to restore. Right-click for the menu |
 | Play / pause on a task row | Starts a focus session for that task |
 | Click the circle | Marks a task done |
 | Click the `0/4` chip | Adds one to that task's estimate |
@@ -131,6 +143,7 @@ Notifications and *Open at login* need the bundled app — they are no-ops under
 | Shortcut | Action |
 | --- | --- |
 | `⌃⌥Space` | Open / close the panel |
+| `⌃⌥H` | Hide the island / bring it back |
 | `⌃⌥N` | Open it and start typing a new task |
 | `⌃⌥P` | Start / pause |
 | `⌃⌥S` | Skip to the next phase |
@@ -167,6 +180,12 @@ offscreen renderer that writes each pane to a PNG without opening a window:
 
 ```bash
 swift run Perch --render ./shots
+```
+
+And a recorder that drives the island through a scripted demo:
+
+```bash
+swift run Perch --demo          # a seeded island, parked off-screen
 ```
 
 ### Layout of the source

@@ -148,6 +148,8 @@ struct Settings: Codable, Equatable {
     var collapseOnStart: Bool = true
     /// Show live CPU load in the menu bar when no session is running.
     var showLoadInMenuBar: Bool = false
+    /// The island is tucked away; the menu-bar item brings it back.
+    var isIslandHidden: Bool = false
 
     /// Index into `Theme.accents` — the colour used for focus sessions.
     var accentIndex: Int = 0

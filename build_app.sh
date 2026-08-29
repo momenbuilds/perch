@@ -1,12 +1,28 @@
 #!/usr/bin/env bash
 # Builds Perch.app — a background (menu-bar) app with no Dock icon.
-set -euo pipefail
+#
+#   ./build_app.sh              universal (Intel + Apple Silicon), release
+#   ./build_app.sh --native     only this machine's architecture, much faster
+#   ./build_app.sh --install    build, then install into /Applications
+set -eo pipefail
 
-CONFIG="${1:-release}"
+cd "$(dirname "$0")"
+
+ARCHS=(--arch arm64 --arch x86_64)
+INSTALL=0
+for arg in "$@"; do
+    case "$arg" in
+        --native)  ARCHS=() ;;
+        --install) INSTALL=1 ;;
+        debug|release) ;;                     # accepted for backwards compatibility
+        *) echo "unknown option: $arg" >&2; exit 1 ;;
+    esac
+done
+
 APP="build/Perch.app"
 
-swift build -c "$CONFIG"
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/Perch"
+swift build -c release "${ARCHS[@]}"
+BIN="$(swift build -c release "${ARCHS[@]}" --show-bin-path)/Perch"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -30,8 +46,18 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
 </dict>
-</plist>
 PLIST
+echo '</plist>' >> "$APP/Contents/Info.plist"
 
 codesign --force --deep --sign - "$APP" 2>/dev/null || true
+
 echo "Built $APP"
+lipo -archs "$APP/Contents/MacOS/Perch" | sed 's/^/  architectures: /'
+
+if [ "$INSTALL" -eq 1 ]; then
+    pkill -x Perch 2>/dev/null || true
+    rm -rf /Applications/Perch.app
+    cp -R "$APP" /Applications/Perch.app
+    open /Applications/Perch.app
+    echo "Installed to /Applications/Perch.app and launched."
+fi

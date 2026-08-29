@@ -488,6 +488,8 @@ private struct SettingsCard: View {
                     ToggleRow(label: "Collapse when a session starts", isOn: $store.settings.collapseOnStart)
                     ToggleRow(label: "Notifications", isOn: $store.settings.showNotifications)
                     ToggleRow(label: "CPU load in the menu bar", isOn: $store.settings.showLoadInMenuBar)
+                    ToggleRow(label: "Hide the island (menu bar only)",
+                              isOn: $store.settings.isIslandHidden)
                     ToggleRow(label: "Open at login", isOn: $store.settings.launchAtLogin)
 
                     HStack(spacing: 8) {
