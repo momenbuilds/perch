@@ -4,6 +4,11 @@ import SwiftUI
 /// be retuned without hunting through views.
 enum Theme {
 
+    /// Set while the offscreen recorder is running. Blurred shadows are rasterised on
+    /// the CPU when a layer tree is rendered by hand, which costs seconds per frame; the
+    /// recorder draws its own shadow into the finished image instead.
+    static var captureMode = false
+
     // MARK: Geometry
 
     static let collapsedSize = CGSize(width: 404, height: 46)

@@ -184,10 +184,13 @@ offscreen renderer that writes each pane to a PNG without opening a window:
 swift run Perch --render ./shots
 ```
 
-And a recorder that drives the island through a scripted demo:
+And a recorder that drives the island through a scripted demo and captures every
+frame — the window sits behind everything else, so nothing on screen is disturbed and
+only the island is ever in the picture:
 
 ```bash
-swift run Perch --demo          # a seeded island, parked off-screen
+swift run Perch --demo              # a seeded island, out of the way
+swift run Perch --record ./frames   # the scripted demo, one PNG per frame
 ```
 
 ### Layout of the source

@@ -114,6 +114,11 @@ final class SystemMonitor: ObservableObject {
         sampleProcesses()
     }
 
+    /// Used by the offscreen recorder, which has no view lifecycle to hang this on.
+    func subscribeProcessesForDemo() {
+        subscribeProcesses()
+    }
+
     func unsubscribeProcesses() {
         processSubscribers = max(0, processSubscribers - 1)
         if processSubscribers == 0 {

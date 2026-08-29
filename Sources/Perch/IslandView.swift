@@ -38,7 +38,8 @@ struct IslandView: View {
                 // break the illusion that the island is part of the bezel, and every
                 // extra shadow is another offscreen render on a window the compositor
                 // already has to blend on every frame.
-                .shadow(color: store.isRunning ? store.accent.opacity(0.28) : .black.opacity(0.5),
+                .shadow(color: Theme.captureMode ? .clear
+                            : (store.isRunning ? store.accent.opacity(0.28) : .black.opacity(0.5)),
                         radius: store.isRunning ? 18 : 14, y: 10)
 
             content
@@ -140,7 +141,7 @@ private struct PhaseTrace: View {
                                startPoint: .leading, endPoint: .trailing),
                 style: StrokeStyle(lineWidth: Theme.traceWidth, lineCap: .round, lineJoin: .round)
             )
-            .shadow(color: store.accent.opacity(0.7), radius: 7)
+            .shadow(color: Theme.captureMode ? .clear : store.accent.opacity(0.7), radius: 7)
             .padding(Theme.traceInset)
             .opacity(store.progress > 0.0005 ? 1 : 0)
             // Not animated on purpose: progress advances by well under a pixel each

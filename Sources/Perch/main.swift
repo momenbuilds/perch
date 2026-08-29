@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `--demo` parks a seeded island off the bottom of the screen so its layout can be
     /// captured for review without disturbing anything the user is looking at.
     private let isDemo = CommandLine.arguments.contains("--demo")
+        || CommandLine.arguments.contains("--record")
     private lazy var store = AppStore(persists: !isDemo)
     private let ui = UIState()
     private let monitor = SystemMonitor()
@@ -39,9 +40,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         makePanel()
         if isDemo {
             ui.isPinned = true
+            // Nothing resizes the window in this mode, so give it the full panel size up
+            // front — otherwise the island is drawn clipped and the capture comes out
+            // empty.
+            let size = panelSize(expanded: true)
             if let screen = NSScreen.main {
-                panel.setFrameOrigin(NSPoint(x: screen.frame.minX,
-                                             y: screen.frame.minY - panel.frame.height - 40))
+                // On screen, but at the back of the stack: window capture needs a window
+                // that is actually on a display, and sitting behind everything means the
+                // user never sees it and nothing of theirs is ever in frame.
+                panel.level = .normal
+                panel.setFrame(NSRect(x: screen.frame.minX,
+                                      y: screen.frame.minY,
+                                      width: size.width, height: size.height),
+                               display: true)
+                panel.orderBack(nil)
+            }
+            if let index = CommandLine.arguments.firstIndex(of: "--record") {
+                let directory = CommandLine.arguments.count > index + 1
+                    ? CommandLine.arguments[index + 1] : "frames"
+                startRecording(into: directory)
             }
             return
         }
@@ -99,6 +116,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: Offscreen capture
+
+    // MARK: Offscreen recording
+
+    /// Drives the island through a scripted demo and writes one PNG per frame, by
+    /// asking the hosting view to draw itself.
+    ///
+    /// The window stays parked off the bottom of the screen throughout, so nothing on
+    /// screen changes, the pointer is never touched, and everything outside the island
+    /// is transparent rather than a picture of somebody's desktop. The script is keyed
+    /// to frame numbers rather than the clock: encoding a frame costs more than the
+    /// frame budget, so a wall-clock script would race ahead of the capture.
+    private func startRecording(into directory: String) {
+        Theme.captureMode = true
+        let folder = URL(fileURLWithPath: directory, isDirectory: true)
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        ui.isPinned = false
+        store.select(store.tasks[0].id)
+
+        let script: [Int: () -> Void] = [
+            4:  { withAnimation(Theme.openSpring) { self.ui.isPinned = true } },
+            10: { withAnimation(Theme.snappy) { self.store.toggleDone(self.store.tasks[5].id) } },
+            13: { withAnimation(Theme.snappy) { self.store.togglePriority(self.store.tasks[3].id) } },
+            16: { withAnimation(Theme.snappy) { self.store.toggleGroup(self.store.groups[1].id) } },
+            19: { withAnimation(Theme.snappy) { self.store.toggleGroup(self.store.groups[1].id) } },
+            22: { withAnimation(Theme.snappy) { self.ui.tab = .stats } },
+            28: { withAnimation(Theme.snappy) { self.ui.tab = .system } },
+            33: { self.monitor.subscribeProcessesForDemo() },
+            40: { withAnimation(Theme.snappy) { self.ui.tab = .settings } },
+            43: { withAnimation(Theme.snappy) { self.store.settings.accentIndex = 4 } },
+            45: { withAnimation(Theme.snappy) { self.store.settings.accentIndex = 5 } },
+            47: { withAnimation(Theme.snappy) { self.store.settings.accentIndex = 0 } },
+            50: { withAnimation(Theme.snappy) { self.ui.tab = .streak } },
+            54: { self.store.select(self.store.tasks[0].id); self.store.start() },
+            57: { withAnimation(Theme.openSpring) { self.ui.collapse() } }
+        ]
+        let total = 63
+
+        var frame = 0
+        let timer = Timer(timeInterval: 1 / 60.0, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                script[frame]?()
+                self.writeFrame(index: frame, into: folder)
+                frame += 1
+                if frame % 10 == 0 { NSLog("PBREC %d/%d", frame, total) }
+                if frame >= total {
+                    timer.invalidate()
+                    print("wrote \(frame) frames to \(folder.path)")
+                    exit(0)
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// The island, cropped out of the hosting view and scaled down before encoding —
+    /// a full-size PNG per frame costs more than the frame budget allows.
+    /// Asks the system to capture our own window.
+    ///
+    /// Rendering the layer tree by hand takes seconds a frame — the CPU rasteriser has
+    /// to redo the whole SwiftUI graph — whereas the window server already has this
+    /// window composited and can hand it over in a fraction of that. Only our window is
+    /// in the image, so nothing of the user's screen is ever captured.
+    private func writeFrame(index: Int, into folder: URL) {
+        let url = folder.appendingPathComponent(String(format: "f%04d.png", index))
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        task.arguments = ["-x", "-o", "-l\(panel.windowNumber)", url.path]
+        task.standardError = FileHandle.nullDevice
+        try? task.run()
+        task.waitUntilExit()
+    }
 
     // MARK: Panel
 

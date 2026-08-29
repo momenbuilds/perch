@@ -63,7 +63,8 @@ struct PlayButton: View {
                 Circle()
                     .fill(isRunning ? Theme.danger : accent)
                     .frame(width: size, height: size)
-                    .shadow(color: (isRunning ? Theme.danger : accent).opacity(0.55),
+                    .shadow(color: Theme.captureMode ? .clear
+                                : (isRunning ? Theme.danger : accent).opacity(0.55),
                             radius: 8)
                 Image(systemName: isRunning ? "pause.fill" : "play.fill")
                     .font(.system(size: size * 0.34, weight: .black))
@@ -232,7 +233,7 @@ struct Gauge: View {
                         style: StrokeStyle(lineWidth: thickness, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
-                    .shadow(color: stroke.opacity(0.5), radius: 5)
+                    .shadow(color: Theme.captureMode ? .clear : stroke.opacity(0.5), radius: 5)
                     // Only the ring animates: crossfading the digits ghosts them.
                     .animation(Theme.contentSpring, value: value)
 
