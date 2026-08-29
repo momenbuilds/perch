@@ -364,7 +364,8 @@ private struct GroupHeader: View {
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                         .font(.system(size: 8.5, weight: .bold))
                         .foregroundStyle(Theme.text3)
-                        .frame(width: 10)
+                        .frame(width: 14, height: 16)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             } else {
@@ -635,8 +636,15 @@ private struct TaskRow: View {
                         .foregroundStyle(.white)
                 }
             }
+            // An unchecked box is a stroked circle with nothing inside it, and SwiftUI
+            // only hit-tests what a shape actually draws — so every click through the
+            // middle of it went straight past the button. Give it a solid target, and a
+            // slightly bigger one than the ring it draws.
+            .frame(width: 28, height: 26)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(task.isDone ? "Mark as not done" : "Mark as done")
     }
 }
 

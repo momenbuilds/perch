@@ -59,6 +59,7 @@ struct SystemCard: View {
                              detail: "\(SystemMonitor.bytes(Double(monitor.diskTotalBytes - monitor.diskUsedBytes))) free",
                              fraction: monitor.disk.value,
                              tint: Theme.gold)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("Show what is reading and writing")
@@ -183,6 +184,9 @@ struct SystemCard: View {
         VStack(spacing: 6) {
             Button { if let sort { open(sort) } } label: {
                 Gauge(value: value, caption: caption, tint: tint)
+                    // A gauge is a stroked ring around empty space; without this the
+                    // click sails through the middle of it.
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(sort == nil)
