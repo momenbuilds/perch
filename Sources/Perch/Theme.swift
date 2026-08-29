@@ -7,7 +7,7 @@ enum Theme {
     // MARK: Geometry
 
     static let collapsedSize = CGSize(width: 404, height: 46)
-    static let expandedSize  = CGSize(width: 848, height: 472)
+    static let expandedSize  = CGSize(width: 872, height: 472)
 
     /// The body is welded to the top bezel: near-square on top, deep curve below.
     static let shoulder: CGFloat = 11

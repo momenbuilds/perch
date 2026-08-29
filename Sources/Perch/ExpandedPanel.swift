@@ -10,7 +10,7 @@ struct ExpandedPanel: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             TasksCard(store: store, ui: ui)
-                .frame(width: 412)
+                .frame(width: 444)
 
             VStack(spacing: 12) {
                 TimerCard(store: store, ui: ui)

@@ -501,7 +501,9 @@ private struct TaskRow: View {
 
             Spacer(minLength: 6)
 
-            if !task.isDone {
+            // Only shown once it says something: a plain 0/1 is noise, and the room is
+            // better spent on the task's own name.
+            if !task.isDone, task.estimate > 1 || task.completed > 0 {
                 PomodoroChip(task: task, accent: store.accent) {
                     store.setEstimate(task.id, task.estimate + 1)
                 }
