@@ -1,30 +1,35 @@
 <p align="center">
-  <img src="Assets/logo.png" width="128" alt="Perch">
+  <img src="Assets/logo.png" width="120" alt="Perch">
 </p>
 
 <h1 align="center">Perch</h1>
 
 <p align="center">
   A Dynamic Island for your Mac — including the Macs that never got one.<br>
-  Pomodoro timer, to-do list and streaks, perched on the top edge of your screen.
+  Pomodoro timer, grouped to-do list, streaks and a live system monitor,
+  perched on the top edge of your screen.
 </p>
 
 <p align="center">
-  <img src="Assets/screenshot-pill.png" width="620" alt="The collapsed pill">
+  <img src="Assets/screenshot-pill.png" width="560" alt="The collapsed pill">
 </p>
 
 Perch hangs a black, bezel-welded island from the top edge of your display. Idle, it is
 a pill with your Pomodoro timer and the task you are working on. Bring the pointer near
-it and it springs open into a panel with your to-do list, your streak, your stats and
-your settings. The hairline traced around its inner edge is the current phase — blue
-for focus, green for a short break, purple for a long one.
+it and it springs open into a panel with your to-do list, your streak, your statistics,
+a live system monitor and your settings. The hairline traced around its inner edge is
+the current phase — your accent colour for focus, green for a short break, purple for a
+long one.
 
 Built with SwiftUI and AppKit. **No notch required:** the island is drawn, not detected,
 so it works identically on Intel MacBooks, external displays and Apple silicon — and it
-stays visible over full-screen apps.
+stays visible over full-screen apps. It is deliberately cheap: measured on an Intel
+MacBook Pro, **0.011% of CPU and 33 MB** sitting idle, and **0.017%** with a session
+running. Nothing is sampled while the panel is closed, and the pointer poll costs
+nothing while the pointer is still.
 
 <p align="center">
-  <img src="Assets/screenshot-panel.png" width="860" alt="The expanded panel">
+  <img src="Assets/screenshot-panel.png" width="880" alt="The expanded panel">
 </p>
 
 ## Features
@@ -34,28 +39,47 @@ stays visible over full-screen apps.
   sessions by default). Every duration is adjustable.
 - Auto-start breaks, auto-start the next focus session, or neither.
 - Skip, reset, or jump straight to a phase.
-- The island can collapse itself when a session starts, so it stops being scenery.
-- A chime and a notification when a phase ends.
+- The island collapses itself when a session starts, so it stops being scenery.
+- A chime — Glass, Ping, Submarine or silence — and a notification when a phase ends.
 
-**Tasks**
-- Unlimited tasks in a scrolling list — add and delete as many as you like.
+**Tasks and groups**
+- Unlimited tasks in a scrolling list. Add and delete as many as you like.
+- Group them — *Client work*, *Study*, whatever you need — and collapse a group to get
+  it out of the way. Deleting a group keeps its tasks; they fall back to the Inbox.
 - Per-task Pomodoro estimates (`2/4`), counted up automatically as you finish sessions.
-- Filter by All / Active / Done, and clear completed in one click.
-- Drag to reorder, double-click to rename, right-click for the rest.
+- Star a task to float it to the top. Filter by All / Active / Done, search across
+  titles and notes, and clear completed in one click.
+- Drag to reorder, double-click to rename, and a menu on every row for the rest.
 - The task you are focusing on carries a coloured spine so you can find it instantly.
 
 **Journey Streak**
 - A 30-day grid, one square per day, shaded by how many sessions you landed.
-- Current streak, best streak, and today's totals.
+- Daily goal, cycle progress and current-versus-best streak, all at a glance.
 - Hover any square for its date and count.
 
 **Statistics**
-- Sessions today, minutes focused today, current streak, all-time sessions.
-- A seven-day bar chart of the week you have just had.
+- Sessions today, minutes focused, current streak, all-time sessions.
+- A seven-day bar chart, a by-hour histogram of when you actually focus, and a log of
+  every session you finished today.
+
+**System monitor**
+- Live CPU, memory and GPU gauges with sparklines, plus disk, network, battery and
+  uptime.
+- **Click a gauge to see what is responsible.** The process explorer lists the top
+  processes by CPU, memory or disk, with live percentages and rates.
+- Everything is read straight from the kernel — `host_statistics`, `IOAccelerator`
+  performance counters and `libproc` — with no shelling out and no polling while the
+  panel is closed.
+
+<p align="center">
+  <img src="Assets/screenshot-system.png" width="880" alt="The system monitor">
+</p>
 
 **Everywhere else**
-- Menu-bar item with a live countdown while a session runs.
+- Six accent colours, and the island can hang left, centre or right.
+- Menu-bar item with a live countdown, and optionally live CPU load.
 - Global hotkeys that need no Accessibility permission.
+- Export your data as JSON, or reveal it in the Finder.
 - Confetti when a focus session lands, because you earned it.
 - Open at login.
 
@@ -90,44 +114,59 @@ Notifications and *Open at login* need the bundled app — they are no-ops under
 | --- | --- |
 | Move the pointer onto the pill | Springs open into the panel |
 | Click anywhere in the panel | Keeps it open (it behaves like a popover) |
-| Click outside, or the collapse button | Closes it |
+| Click outside, or press `esc` | Closes it |
 | Play / pause on a task row | Starts a focus session for that task |
 | Click the circle | Marks a task done |
 | Click the `0/4` chip | Adds one to that task's estimate |
+| Star | Floats the task to the top |
+| `⋯` on a row | Rename, edit note, move to a group, delete |
 | Double-click a task | Rename it |
-| Drag a task | Reorder |
-| `×` on hover, or right-click → Delete | Removes a task |
-| Type in "Add a task" + Return | Adds one, with the estimate shown beside it |
-| Flame / chart / gear icons | Switch between streak, stats and settings |
+| Drag a task | Reorder, or drop it into another group |
+| `⋯` in the header | New group, system load, clear completed |
+| Chevron on a group | Collapses it |
+| Flame / chart / chip / gear | Streak, statistics, system, settings |
 
 ### Global hotkeys
 
 | Shortcut | Action |
 | --- | --- |
 | `⌃⌥Space` | Open / close the panel |
+| `⌃⌥N` | Open it and start typing a new task |
 | `⌃⌥P` | Start / pause |
 | `⌃⌥S` | Skip to the next phase |
 | `⌃⌥R` | Reset the current phase |
 
 Finishing a focus session banks it: the streak grid gets a square, the task's counter
-goes up, and the confetti fires. A fresh install seeds a sample 30-day history so the
-grid has something to show — **Reset all** in Settings wipes it and starts you at zero.
+goes up, and the confetti fires. Nothing is seeded or faked — a fresh install starts
+empty and every number you see is yours.
 
 Everything is stored as JSON in `~/Library/Application Support/Perch/state.json`.
 
 ## Development
 
-Shorten a session while working on the UI:
-
 ```bash
-PB_SESSION_SECONDS=60 swift run
+swift build                                   # build
+PB_SESSION_SECONDS=60 swift run               # 60-second phases while working on the UI
+swift Tools/MakeIcon.swift && \
+  iconutil -c icns Assets/AppIcon.iconset -o Assets/AppIcon.icns   # redraw the mark
 ```
 
-Redraw the icon and the logo after changing the mark:
+### Checks
+
+The engine has a headless self-test — 117 assertions covering tasks, groups, sorting and
+search, whole Pomodoro cycles including the long break, statistics, persistence
+round-trips (and loading files written by older versions), formatting, and live system
+metrics:
 
 ```bash
-swift Tools/MakeIcon.swift
-iconutil -c icns Assets/AppIcon.iconset -o Assets/AppIcon.icns
+swift run Perch --selftest
+```
+
+It uses an in-memory store, so running it never touches your data. There is also an
+offscreen renderer that writes each pane to a PNG without opening a window:
+
+```bash
+swift run Perch --render ./shots
 ```
 
 ### Layout of the source
@@ -138,17 +177,20 @@ iconutil -c icns Assets/AppIcon.iconset -o Assets/AppIcon.icns
 | `IslandPanel.swift` | The borderless panel that floats above the menu bar |
 | `IslandView.swift` | The island body, the progress hairline, the collapsed pill |
 | `ExpandedPanel.swift` | Timer transport, streak grid, statistics, settings |
-| `TasksCard.swift` | The to-do list, its rows, drag-reorder and the add field |
-| `Components.swift` | Cards, buttons, segmented controls, stat tiles |
+| `TasksCard.swift` | The to-do list, groups, rows, drag-reorder and the add field |
+| `SystemCard.swift` | Gauges, meters and the process explorer |
+| `SystemMonitor.swift` | CPU, memory, GPU, disk, network, battery and per-process sampling |
+| `Components.swift` | Cards, buttons, segmented controls, gauges, sparklines |
 | `Confetti.swift` | The burst fired when a session lands |
-| `Store.swift` | Pomodoro engine, tasks, history, persistence |
-| `Model.swift` | Phases, tasks, daily rollups, settings |
+| `Store.swift` | Pomodoro engine, tasks, groups, history, persistence |
+| `Model.swift` | Phases, tasks, groups, daily rollups, settings |
 | `Theme.swift` | Every size, colour, font and spring in one place |
 | `Shapes.swift` | The island silhouette and the progress hairline |
 | `HotKeys.swift` | Carbon global hotkeys (no Accessibility permission needed) |
 | `LoginItem.swift` | Open at login via `SMAppService` |
+| `SelfTest.swift` / `PreviewRenderer.swift` | The headless harnesses |
 
-Three decisions worth knowing before you change them:
+Four decisions worth knowing before you change them:
 
 **The silhouette is inverted at the top.** The island's top edge runs the full width,
 flush with the bezel, and flares *inward* through a pair of concave shoulders. That
@@ -157,13 +199,16 @@ rectangle parked near the top of the screen.
 
 **The panel never resizes.** It is fixed at the expanded size and SwiftUI springs the
 shape inside it, because animating an `NSWindow` resize is visibly choppy. Everything
-outside the island body is kept click-through by polling the pointer and toggling
-`ignoresMouseEvents`, so the desktop underneath stays usable.
+outside the island body is kept click-through by toggling `ignoresMouseEvents`.
 
-**Hover is decided by that same poll, not by `.onHover`.** A pointer that lands on the
-island in a single jump produces no further mouse-moved event while the window is
-interactive, so SwiftUI would miss it — and clicking makes the panel key, which drops
-SwiftUI's hover state right under the pointer.
+**Hover is decided by a pointer poll, not `.onHover`.** macOS only delivers mouse-moved
+events to apps that ask for them, so a global monitor silently misses the pointer
+crossing another app's window. The poll costs nothing because it bails out the moment it
+sees the pointer has not moved.
+
+**No control hides behind hover.** SwiftUI does not deliver hover events at all while an
+app is inactive, which an overlay panel always is, so every action on a row is visible
+all the time.
 
 ## License
 

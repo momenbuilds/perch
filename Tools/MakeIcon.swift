@@ -1,7 +1,7 @@
-// Draws the Perch mark — the island silhouette hanging from a bezel line, traced by a
-// focus session — and writes the app icon and the README logo.
+// Draws the Perch mark — the island hanging from the bezel, wrapped by a focus session —
+// and writes the app icon and the README logo.
 //
-//   swift Tools/MakeIcon.swift
+//   swift Tools/MakeIcon.swift && iconutil -c icns Assets/AppIcon.iconset -o Assets/AppIcon.icns
 import AppKit
 import Foundation
 
@@ -9,6 +9,10 @@ let out = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     .appendingPathComponent("Assets")
 try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
 
+let accent = NSColor(srgbRed: 0.04, green: 0.52, blue: 1, alpha: 1)
+
+/// The island silhouette: flush top edge, concave shoulders, deep rounded bottom.
+/// `rect.maxY` is the bezel the shape hangs from.
 func islandPath(rect: CGRect, shoulder s: CGFloat, bottom b: CGFloat) -> NSBezierPath {
     let p = NSBezierPath()
     p.move(to: CGPoint(x: rect.minX, y: rect.maxY))
@@ -32,15 +36,17 @@ func islandPath(rect: CGRect, shoulder s: CGFloat, bottom b: CGFloat) -> NSBezie
     return p
 }
 
-/// The blue session hairline: down the left shoulder, across the bottom, part way up.
-func tracePath(rect: CGRect, shoulder s: CGFloat, bottom b: CGFloat) -> NSBezierPath {
+/// The session hairline, hugging the inside of the body: down the left, across the
+/// bottom, and part of the way back up.
+func tracePath(rect: CGRect, shoulder s: CGFloat, bottom b: CGFloat, progress: CGFloat) -> NSBezierPath {
     let p = NSBezierPath()
     p.move(to: CGPoint(x: rect.minX + s, y: rect.maxY))
     p.line(to: CGPoint(x: rect.minX + s, y: rect.minY + b))
     p.curve(to: CGPoint(x: rect.minX + s + b, y: rect.minY),
             controlPoint1: CGPoint(x: rect.minX + s, y: rect.minY),
             controlPoint2: CGPoint(x: rect.minX + s, y: rect.minY))
-    p.line(to: CGPoint(x: rect.maxX - s - b - (rect.width * 0.20), y: rect.minY))
+    let span = (rect.maxX - s - b) - (rect.minX + s + b)
+    p.line(to: CGPoint(x: rect.minX + s + b + span * progress, y: rect.minY))
     return p
 }
 
@@ -50,52 +56,52 @@ func render(size n: CGFloat) -> NSImage {
     guard let ctx = NSGraphicsContext.current?.cgContext else { image.unlockFocus(); return image }
     ctx.setAllowsAntialiasing(true)
 
-    // Ground: a squircle-ish rounded square with a top-lit gradient.
     let ground = NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: n, height: n),
                               xRadius: n * 0.2237, yRadius: n * 0.2237)
     ground.addClip()
-    // Light at the top, dark at the bottom, so a pure-black island still reads.
-    let gradient = NSGradient(colors: [NSColor(srgbRed: 0.180, green: 0.196, blue: 0.235, alpha: 1),
-                                       NSColor(srgbRed: 0.043, green: 0.051, blue: 0.067, alpha: 1)])
-    gradient?.draw(in: NSRect(x: 0, y: 0, width: n, height: n), angle: -90)
 
-    // The bezel the island hangs from.
-    let bezelY = n * 0.70
-    NSColor(white: 1, alpha: 0.10).setStroke()
-    let bezel = NSBezierPath()
-    bezel.lineWidth = max(1, n * 0.006)
-    bezel.move(to: CGPoint(x: n * 0.06, y: bezelY))
-    bezel.line(to: CGPoint(x: n * 0.94, y: bezelY))
-    bezel.stroke()
+    // Screen: dark, lit from the top.
+    NSGradient(colors: [NSColor(srgbRed: 0.114, green: 0.125, blue: 0.149, alpha: 1),
+                        NSColor(srgbRed: 0.035, green: 0.039, blue: 0.051, alpha: 1)])?
+        .draw(in: NSRect(x: 0, y: 0, width: n, height: n), angle: -90)
 
-    let body = CGRect(x: n * 0.135, y: n * 0.335, width: n * 0.73, height: n * 0.365)
-    let shoulder = n * 0.055
-    let bottom = n * 0.135
+    // Bezel band across the top, the edge the island is welded to.
+    let bezelHeight = n * 0.185
+    NSGradient(colors: [NSColor(srgbRed: 0.157, green: 0.173, blue: 0.204, alpha: 1),
+                        NSColor(srgbRed: 0.106, green: 0.118, blue: 0.145, alpha: 1)])?
+        .draw(in: NSRect(x: 0, y: n - bezelHeight, width: n, height: bezelHeight), angle: -90)
+    NSColor(white: 1, alpha: 0.07).setFill()
+    NSRect(x: 0, y: n - bezelHeight - n * 0.004, width: n, height: n * 0.004).fill()
 
-    // Body, with a soft drop shadow so it sits above the ground.
+    let body = CGRect(x: n * 0.155, y: n * 0.375,
+                      width: n * 0.69, height: n - bezelHeight - n * 0.375)
+    let shoulder = n * 0.05
+    let bottom = n * 0.14
+
+    // Ambient glow beneath, as if a session were running.
     ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -n * 0.02), blur: n * 0.06,
-                  color: NSColor(white: 0, alpha: 0.55).cgColor)
-    NSColor(srgbRed: 0.008, green: 0.008, blue: 0.012, alpha: 1).setFill()
+    ctx.setShadow(offset: CGSize(width: 0, height: -n * 0.03), blur: n * 0.10,
+                  color: accent.withAlphaComponent(0.38).cgColor)
+    NSColor(srgbRed: 0.006, green: 0.006, blue: 0.01, alpha: 1).setFill()
     islandPath(rect: body, shoulder: shoulder, bottom: bottom).fill()
     ctx.restoreGState()
 
     let edge = islandPath(rect: body, shoulder: shoulder, bottom: bottom)
-    edge.lineWidth = max(1, n * 0.007)
-    NSColor(white: 1, alpha: 0.22).setStroke()
+    edge.lineWidth = max(1, n * 0.0075)
+    NSColor(white: 1, alpha: 0.26).setStroke()
     edge.stroke()
 
     // Session hairline.
     let inset = n * 0.028
     let traceRect = body.insetBy(dx: inset, dy: inset)
-    let trace = tracePath(rect: traceRect, shoulder: shoulder * 0.8, bottom: bottom * 0.75)
+    let trace = tracePath(rect: traceRect, shoulder: shoulder * 0.75,
+                          bottom: bottom * 0.72, progress: 0.62)
     trace.lineWidth = n * 0.026
     trace.lineCapStyle = .round
     trace.lineJoinStyle = .round
     ctx.saveGState()
-    ctx.setShadow(offset: .zero, blur: n * 0.05,
-                  color: NSColor(srgbRed: 0.04, green: 0.52, blue: 1, alpha: 0.9).cgColor)
-    NSColor(srgbRed: 0.04, green: 0.52, blue: 1, alpha: 1).setStroke()
+    ctx.setShadow(offset: .zero, blur: n * 0.055, color: accent.withAlphaComponent(0.95).cgColor)
+    accent.setStroke()
     trace.stroke()
     ctx.restoreGState()
 
@@ -116,10 +122,8 @@ func writePNG(_ image: NSImage, to url: URL, pixels: Int) {
     try? rep.representation(using: .png, properties: [:])!.write(to: url)
 }
 
-// README logo.
 writePNG(render(size: 1024), to: out.appendingPathComponent("logo.png"), pixels: 1024)
 
-// Icon set.
 let iconset = out.appendingPathComponent("AppIcon.iconset")
 try? FileManager.default.removeItem(at: iconset)
 try? FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)

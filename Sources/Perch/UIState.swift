@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 
 enum PanelTab: String, CaseIterable, Identifiable {
-    case streak, stats, settings
+    case streak, stats, system, settings
 
     var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         switch self {
         case .streak:   return "flame.fill"
         case .stats:    return "chart.bar.fill"
+        case .system:   return "cpu.fill"
         case .settings: return "gearshape.fill"
         }
     }
@@ -19,6 +20,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         switch self {
         case .streak:   return "Journey Streak"
         case .stats:    return "Statistics"
+        case .system:   return "System"
         case .settings: return "Settings"
         }
     }
@@ -34,6 +36,10 @@ final class UIState: ObservableObject {
     @Published var tab: PanelTab = .streak
     /// Set while a text field has focus so a stray pointer move cannot close the panel.
     @Published var isEditing = false
+    /// Raised to move keyboard focus into the add-task field. It is a latch rather than
+    /// an event because the field may not exist yet when it is set — the panel is still
+    /// opening — so the card claims it when it appears.
+    @Published var wantsAddFocus = false
 
     var isExpanded: Bool { isHovering || isPinned || isEditing }
 

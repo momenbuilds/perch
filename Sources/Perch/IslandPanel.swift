@@ -13,12 +13,16 @@ final class IslandPanel: NSPanel {
                    defer: false)
 
         isFloatingPanel = true
-        becomesKeyOnlyIfNeeded = true
+        // The panel has to be able to take key focus on demand — the "new task" hot key
+        // opens it and puts the caret straight into the field.
+        becomesKeyOnlyIfNeeded = false
         hidesOnDeactivate = false
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
         isMovable = false
+        // Hover-revealed controls depend on mouse-moved events reaching the window.
+        acceptsMouseMovedEvents = true
         // Above the menu bar so the island reads as part of the bezel, and above a
         // full-screen app's window so it does not vanish when you zoom something.
         level = .popUpMenu

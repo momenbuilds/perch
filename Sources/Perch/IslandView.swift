@@ -5,6 +5,7 @@ import SwiftUI
 struct IslandView: View {
     @ObservedObject var store: AppStore
     @ObservedObject var ui: UIState
+    @ObservedObject var monitor: SystemMonitor
 
     private var size: CGSize { ui.size }
     private var bottomRadius: CGFloat {
@@ -14,12 +15,18 @@ struct IslandView: View {
         IslandShape(shoulder: Theme.shoulder, bottomRadius: bottomRadius)
     }
 
-    var body: some View {
-        VStack(spacing: 0) {
-            island
-            Spacer(minLength: 0)
+    private var horizontal: Alignment {
+        switch store.settings.alignment {
+        case .leading:  return .topLeading
+        case .center:   return .top
+        case .trailing: return .topTrailing
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    var body: some View {
+        island
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: horizontal)
+            .animation(Theme.openSpring, value: store.settings.alignment)
     }
 
     private var island: some View {
@@ -71,7 +78,8 @@ struct IslandView: View {
             .shadow(color: store.accent.opacity(0.7), radius: 7)
             .padding(Theme.traceInset)
             .opacity(store.progress > 0.0005 ? 1 : 0)
-            .animation(.linear(duration: 0.4), value: store.progress)
+            // Not animated on purpose: progress advances by well under a pixel each
+            // second, and animating it would keep a redraw running continuously.
             .animation(Theme.contentSpring, value: store.phase)
     }
 
@@ -80,7 +88,7 @@ struct IslandView: View {
     @ViewBuilder
     private var content: some View {
         if ui.isExpanded {
-            ExpandedPanel(store: store, ui: ui)
+            ExpandedPanel(store: store, ui: ui, monitor: monitor)
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
         } else {
             CollapsedPill(store: store)
@@ -91,26 +99,22 @@ struct IslandView: View {
 
 // MARK: - Collapsed
 
-private struct CollapsedPill: View {
+struct CollapsedPill: View {
     @ObservedObject var store: AppStore
-    @State private var pulse = false
 
     var body: some View {
         HStack(spacing: 11) {
             ZStack {
+                // Deliberately static. Any per-second animation here keeps the
+                // compositor awake for most of every second, which showed up as real
+                // CPU while a session ran.
                 Circle()
-                    .fill(store.accent.opacity(0.18))
+                    .fill(store.accent.opacity(store.isRunning ? 0.26 : 0.16))
                     .frame(width: 26, height: 26)
-                    .scaleEffect(store.isRunning && pulse ? 1.18 : 1)
-                    .opacity(store.isRunning && pulse ? 0.4 : 1)
                 Image(systemName: store.phase.symbol)
                     .font(Theme.ui(12, .semibold))
                     .foregroundStyle(store.accent)
             }
-            .animation(store.isRunning
-                       ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
-                       : .default,
-                       value: pulse)
 
             Text(store.clockText)
                 .font(Theme.mono(22, .semibold))
@@ -131,7 +135,7 @@ private struct CollapsedPill: View {
         // The top edge is flat and the bottom is deeply curved, so content centred in
         // the raw frame reads top-heavy. Nudge it into the optical centre.
         .padding(.top, 8)
-        .onAppear { pulse = true }
+
     }
 }
 

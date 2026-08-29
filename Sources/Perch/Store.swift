@@ -13,7 +13,10 @@ final class AppStore: ObservableObject {
 
     @Published var settings: Settings { didSet { settingsChanged(from: oldValue) } }
     @Published var tasks: [TodoItem] = []
+    @Published var groups: [TaskGroup] = []
     @Published var activeTaskID: UUID?
+    /// Live text filter over the task list.
+    @Published var search = ""
 
     @Published private(set) var phase: Phase = .focus
     @Published private(set) var isRunning = false
@@ -22,6 +25,8 @@ final class AppStore: ObservableObject {
     @Published private(set) var cyclePosition = 0
 
     @Published private(set) var days: [String: DayStat] = [:]
+    /// Recently finished focus sessions, newest last.
+    @Published private(set) var log: [SessionRecord] = []
     /// Bumped every time a focus session lands, so the UI can throw confetti.
     @Published private(set) var celebration = 0
     /// Transient banner shown inside the island ("Break time", "Nice work" …).
@@ -33,9 +38,25 @@ final class AppStore: ObservableObject {
 
     // MARK: Derived
 
-    var accent: Color { phase.accent }
+    /// Focus uses the user's chosen accent; breaks keep their own fixed colours so a
+    /// glance at the island tells you which kind of phase is running.
+    var accent: Color {
+        switch phase {
+        case .focus:      return Theme.accent(settings.accentIndex)
+        case .shortBreak: return Theme.shortAccent
+        case .longBreak:  return Theme.longAccent
+        }
+    }
 
-    var phaseLength: TimeInterval { settings.length(for: phase) }
+    /// Phase length, with a development override so the UI can be exercised without
+    /// waiting 25 minutes: PB_SESSION_SECONDS=60 swift run
+    var phaseLength: TimeInterval {
+        if let raw = ProcessInfo.processInfo.environment["PB_SESSION_SECONDS"],
+           let seconds = Double(raw), seconds > 0 {
+            return seconds
+        }
+        return settings.length(for: phase)
+    }
 
     /// 0…1 through the current phase — what the hairline traces.
     var progress: Double {
@@ -69,6 +90,28 @@ final class AppStore: ObservableObject {
     var today: DayStat { days[Self.key(Date())] ?? DayStat() }
 
     var totalSessions: Int { days.values.reduce(0) { $0 + $1.sessions } }
+
+    /// Today's finished sessions, newest first.
+    var todaysLog: [SessionRecord] {
+        log.filter { Calendar.current.isDateInToday($0.finishedAt) }.reversed()
+    }
+
+    /// How many logged sessions finished in each hour of the day.
+    var hourHistogram: [Int] {
+        var counts = [Int](repeating: 0, count: 24)
+        let calendar = Calendar.current
+        for record in log {
+            let hour = calendar.component(.hour, from: record.finishedAt)
+            if hour >= 0, hour < 24 { counts[hour] += 1 }
+        }
+        return counts
+    }
+
+    /// Progress toward today's session goal, 0…1.
+    var goalProgress: Double {
+        guard settings.dailyGoal > 0 else { return 0 }
+        return min(Double(today.sessions) / Double(settings.dailyGoal), 1)
+    }
     var totalFocusMinutes: Int { days.values.reduce(0) { $0 + $1.focusSeconds } / 60 }
 
     /// Consecutive days ending today (or yesterday, if today is still empty).
@@ -118,45 +161,34 @@ final class AppStore: ObservableObject {
 
     // MARK: Lifecycle
 
-    init() {
-        let saved = Persistence.load()
+    /// When false the store neither reads nor writes the on-disk state. The render and
+    /// self-test harnesses use this so they can never touch real data.
+    let persists: Bool
+
+    init(persists: Bool = true) {
+        self.persists = persists
+        let saved = persists ? Persistence.load() : nil
         settings = saved?.settings ?? Settings()
-        tasks = saved?.tasks ?? AppStore.starterTasks
-        days = saved?.days ?? AppStore.sampleHistory()
+        tasks = saved?.tasks ?? []
+        groups = saved?.groups ?? []
+        days = saved?.days ?? [:]
+        log = saved?.log ?? []
         phase = saved?.phase ?? .focus
         cyclePosition = saved?.cyclePosition ?? 0
         activeTaskID = saved?.activeTaskID ?? tasks.first?.id
         // A settings change between launches must not leave a stale remainder that
         // would read as negative progress.
         remaining = min(saved?.remaining ?? settings.length(for: phase), settings.length(for: phase))
-
-        saveBag = objectWillChange
-            .debounce(for: .seconds(1), scheduler: RunLoop.main)
-            .sink { [weak self] _ in self?.save() }
-    }
-
-    private static var starterTasks: [TodoItem] {
-        [
-            TodoItem(title: "Do client works", note: "Create 10 Logos for Marc's company", estimate: 4),
-            TodoItem(title: "Ship the island", note: "Polish the expanded panel", estimate: 2),
-            TodoItem(title: "Inbox zero", note: "Reply to everything from Monday", estimate: 1)
-        ]
-    }
-
-    /// Plausible activity for the last 30 days so a fresh install has a grid to show.
-    /// "Clear All Data" wipes it.
-    static func sampleHistory() -> [String: DayStat] {
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: Date())
-        var out: [String: DayStat] = [:]
-        for offset in 0..<30 {
-            guard let day = cal.date(byAdding: .day, value: -offset, to: today) else { continue }
-            let roll = offset == 0 ? 8 : Int.random(in: 0...9)
-            guard roll > 2 else { continue }
-            let sessions = roll > 7 ? 4 : (roll > 5 ? 3 : (roll > 4 ? 2 : 1))
-            out[key(day)] = DayStat(sessions: sessions, focusSeconds: sessions * 25 * 60)
+        if let raw = ProcessInfo.processInfo.environment["PB_SESSION_SECONDS"],
+           let seconds = Double(raw), seconds > 0 {
+            remaining = seconds
         }
-        return out
+
+        if persists {
+            saveBag = objectWillChange
+                .debounce(for: .seconds(1), scheduler: RunLoop.main)
+                .sink { [weak self] _ in self?.save() }
+        }
     }
 
     // MARK: Engine
@@ -208,7 +240,7 @@ final class AppStore: ObservableObject {
     func switchTo(_ next: Phase, autoStart: Bool = false) {
         pause()
         phase = next
-        remaining = settings.length(for: next)
+        remaining = phaseLength
         if autoStart { start() }
     }
 
@@ -228,7 +260,8 @@ final class AppStore: ObservableObject {
         days[k] = stat
     }
 
-    private func advance(counting: Bool) {
+    /// Internal rather than private so the self-test can drive whole cycles instantly.
+    func advance(counting: Bool) {
         let finished = phase
         pause()
 
@@ -238,9 +271,13 @@ final class AppStore: ObservableObject {
             stat.sessions += 1
             days[k] = stat
 
+            let title = activeTask?.title ?? "Focus"
             if let id = activeTaskID, let idx = tasks.firstIndex(where: { $0.id == id }) {
                 tasks[idx].completed += 1
             }
+            log.append(SessionRecord(finishedAt: Date(), taskTitle: title,
+                                     minutes: settings.focusMinutes))
+            if log.count > 300 { log.removeFirst(log.count - 300) }
             cyclePosition += 1
             celebration += 1
             notify(title: "Focus session complete",
@@ -259,7 +296,7 @@ final class AppStore: ObservableObject {
         }
 
         phase = next
-        remaining = settings.length(for: next)
+        remaining = phaseLength
         save()
 
         let shouldAutoStart = next.isBreak ? settings.autoStartBreaks : settings.autoStartFocus
@@ -269,10 +306,12 @@ final class AppStore: ObservableObject {
     // MARK: Tasks
 
     @discardableResult
-    func addTask(_ title: String, note: String = "", estimate: Int = 1) -> Bool {
+    func addTask(_ title: String, note: String = "", estimate: Int = 1,
+                 groupID: UUID? = nil) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        tasks.append(TodoItem(title: trimmed, note: note, estimate: max(1, estimate)))
+        tasks.append(TodoItem(title: trimmed, note: note, estimate: max(1, estimate),
+                              groupID: groupID))
         if activeTaskID == nil { activeTaskID = tasks.last?.id }
         save()
         return true
@@ -309,6 +348,90 @@ final class AppStore: ObservableObject {
         tasks.removeAll { $0.isDone }
         flash("Cleared \(n) completed task\(n == 1 ? "" : "s")")
         save()
+    }
+
+    func togglePriority(_ id: UUID) {
+        guard let idx = tasks.firstIndex(where: { $0.id == id }) else { return }
+        tasks[idx].isPriority.toggle()
+        save()
+    }
+
+    func setNote(_ id: UUID, _ note: String) {
+        guard let idx = tasks.firstIndex(where: { $0.id == id }) else { return }
+        tasks[idx].note = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        save()
+    }
+
+    func assign(_ id: UUID, to groupID: UUID?) {
+        guard let idx = tasks.firstIndex(where: { $0.id == id }) else { return }
+        tasks[idx].groupID = groupID
+        save()
+    }
+
+    // MARK: Groups
+
+    @discardableResult
+    func addGroup(_ name: String) -> TaskGroup? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let group = TaskGroup(name: trimmed, colorIndex: groups.count % Theme.groupPalette.count)
+        groups.append(group)
+        flash("Added group “\(trimmed)”")
+        save()
+        return group
+    }
+
+    func renameGroup(_ id: UUID, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let idx = groups.firstIndex(where: { $0.id == id }) else { return }
+        groups[idx].name = trimmed
+        save()
+    }
+
+    func toggleGroup(_ id: UUID) {
+        guard let idx = groups.firstIndex(where: { $0.id == id }) else { return }
+        groups[idx].isCollapsed.toggle()
+        save()
+    }
+
+    func cycleGroupColor(_ id: UUID) {
+        guard let idx = groups.firstIndex(where: { $0.id == id }) else { return }
+        groups[idx].colorIndex = (groups[idx].colorIndex + 1) % Theme.groupPalette.count
+        save()
+    }
+
+    /// Deleting a group keeps its tasks — they fall back to the ungrouped list.
+    func deleteGroup(_ id: UUID) {
+        guard let group = groups.first(where: { $0.id == id }) else { return }
+        for index in tasks.indices where tasks[index].groupID == id {
+            tasks[index].groupID = nil
+        }
+        groups.removeAll { $0.id == id }
+        flash("Deleted group “\(group.name)” — its tasks moved to Inbox")
+        save()
+    }
+
+    func tasks(in group: TaskGroup?) -> [TodoItem] {
+        let matching = tasks.filter { $0.groupID == group?.id }
+        return sorted(matching)
+    }
+
+    /// Priority first, then unfinished, then original order.
+    func sorted(_ items: [TodoItem]) -> [TodoItem] {
+        items.filter { matchesSearch($0) }
+            .enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element.isDone != rhs.element.isDone { return !lhs.element.isDone }
+                if lhs.element.isPriority != rhs.element.isPriority { return lhs.element.isPriority }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+    }
+
+    private func matchesSearch(_ item: TodoItem) -> Bool {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return true }
+        return item.title.lowercased().contains(query) || item.note.lowercased().contains(query)
     }
 
     func setEstimate(_ id: UUID, _ value: Int) {
@@ -354,7 +477,7 @@ final class AppStore: ObservableObject {
     }
 
     private func notify(title: String, body: String) {
-        if settings.playSound { NSSound(named: "Glass")?.play() }
+        if let sound = settings.chime.systemName { NSSound(named: sound)?.play() }
         guard settings.showNotifications, Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = title
@@ -379,14 +502,61 @@ final class AppStore: ObservableObject {
 
     func clearAllData() {
         pause()
-        tasks = AppStore.starterTasks
+        tasks = []
+        groups = []
         days = [:]
+        log = []
         cyclePosition = 0
         phase = .focus
         activeTaskID = tasks.first?.id
         remaining = phaseLength
         flash("Everything reset")
         save()
+    }
+
+    /// Fills an in-memory store with a believable working set, for `--demo` and the
+    /// offscreen renderer. Never called by the shipping app path.
+    func seedDemoContent() {
+        let client = addGroup("Client work")
+        let study = addGroup("Study")
+        addTask("Draft the Q3 proposal", note: "Two pages, no fluff", estimate: 4, groupID: client?.id)
+        addTask("Invoice the client", note: "Net 14", estimate: 1, groupID: client?.id)
+        addTask("Client call prep", estimate: 2, groupID: client?.id)
+        addTask("Study SwiftUI layout", note: "Chapter 4", estimate: 3, groupID: study?.id)
+        addTask("Read the concurrency guide", estimate: 2, groupID: study?.id)
+        addTask("Review pull requests", note: "Three open", estimate: 2)
+        addTask("Write release notes", estimate: 1)
+        addTask("Plan next sprint", estimate: 2)
+        addTask("Fix the hover flicker", note: "Only on external displays", estimate: 1)
+        addTask("Update the README", estimate: 1)
+        togglePriority(tasks[0].id)
+        toggleDone(tasks[6].id)
+        tasks[0].completed = 2
+        select(tasks[0].id)
+
+        let calendar = Calendar.current
+        for offset in [0, 1, 2, 4, 5, 9, 12, 13, 14, 20, 27] {
+            guard let day = calendar.date(byAdding: .day, value: -offset, to: Date()) else { continue }
+            seedForPreview(day: day, sessions: (offset % 3) + 1,
+                           title: tasks[offset % tasks.count].title)
+        }
+        remaining = phaseLength * 0.4
+    }
+
+    /// Used only by the offscreen preview renderer to fabricate a believable history.
+    /// It is never reachable from the running app.
+    func seedForPreview(day: Date, sessions: Int, title: String) {
+        let key = Self.key(day)
+        var stat = days[key] ?? DayStat()
+        stat.sessions += sessions
+        stat.focusSeconds += sessions * settings.focusMinutes * 60
+        days[key] = stat
+        for index in 0..<sessions {
+            let finished = Calendar.current.date(bySettingHour: 9 + index * 2, minute: 15,
+                                                 second: 0, of: day) ?? day
+            log.append(SessionRecord(finishedAt: finished, taskTitle: title,
+                                     minutes: settings.focusMinutes))
+        }
     }
 
     // MARK: Persistence
@@ -405,9 +575,12 @@ final class AppStore: ObservableObject {
     }
 
     func save() {
+        guard persists else { return }
         Persistence.save(PersistedState(settings: settings,
                                         tasks: tasks,
+                                        groups: groups,
                                         days: days,
+                                        log: log,
                                         phase: phase,
                                         cyclePosition: cyclePosition,
                                         remaining: remaining,
@@ -420,7 +593,9 @@ final class AppStore: ObservableObject {
 struct PersistedState: Codable {
     var settings: Settings
     var tasks: [TodoItem]
+    var groups: [TaskGroup]?
     var days: [String: DayStat]
+    var log: [SessionRecord]?
     var phase: Phase
     var cyclePosition: Int
     var remaining: TimeInterval
@@ -428,6 +603,9 @@ struct PersistedState: Codable {
 }
 
 enum Persistence {
+    /// Where the JSON lives, exposed so the app can reveal or export it.
+    static var fileURL: URL { url }
+
     private static var url: URL {
         let base = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

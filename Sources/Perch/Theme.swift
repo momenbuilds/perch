@@ -7,7 +7,7 @@ enum Theme {
     // MARK: Geometry
 
     static let collapsedSize = CGSize(width: 404, height: 46)
-    static let expandedSize  = CGSize(width: 792, height: 400)
+    static let expandedSize  = CGSize(width: 848, height: 472)
 
     /// The body is welded to the top bezel: near-square on top, deep curve below.
     static let shoulder: CGFloat = 11
@@ -47,6 +47,35 @@ enum Theme {
     // MARK: Accents
 
     static let focusAccent = Color(red: 0.04, green: 0.52, blue: 1.00)   // #0A84FF
+
+    /// Focus-session accents the user can choose between.
+    static let accents: [Color] = [
+        Color(red: 0.04, green: 0.52, blue: 1.00),   // Blue
+        Color(red: 0.37, green: 0.36, blue: 0.90),   // Indigo
+        Color(red: 0.18, green: 0.75, blue: 0.80),   // Teal
+        Color(red: 1.00, green: 0.62, blue: 0.04),   // Amber
+        Color(red: 1.00, green: 0.25, blue: 0.42),   // Rose
+        Color(red: 0.20, green: 0.82, blue: 0.62)    // Mint
+    ]
+    static let accentNames = ["Blue", "Indigo", "Teal", "Amber", "Rose", "Mint"]
+
+    static func accent(_ index: Int) -> Color {
+        accents[max(0, min(index, accents.count - 1))]
+    }
+
+    /// Dot colours for task groups.
+    static let groupPalette: [Color] = [
+        Color(red: 0.42, green: 0.62, blue: 0.98),
+        Color(red: 0.36, green: 0.80, blue: 0.55),
+        Color(red: 0.90, green: 0.62, blue: 0.28),
+        Color(red: 0.78, green: 0.45, blue: 0.92),
+        Color(red: 0.95, green: 0.42, blue: 0.50),
+        Color(red: 0.45, green: 0.78, blue: 0.85)
+    ]
+
+    static func groupColor(_ index: Int) -> Color {
+        groupPalette[max(0, min(index, groupPalette.count - 1))]
+    }
     static let shortAccent = Color(red: 0.19, green: 0.82, blue: 0.35)   // #30D158
     static let longAccent  = Color(red: 0.75, green: 0.35, blue: 0.95)   // #BF5AF2
     static let danger      = Color(red: 1.00, green: 0.23, blue: 0.19)   // #FF3B30

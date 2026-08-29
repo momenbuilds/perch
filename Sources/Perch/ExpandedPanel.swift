@@ -5,17 +5,18 @@ import SwiftUI
 struct ExpandedPanel: View {
     @ObservedObject var store: AppStore
     @ObservedObject var ui: UIState
+    @ObservedObject var monitor: SystemMonitor
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             TasksCard(store: store, ui: ui)
-                .frame(width: 386)
+                .frame(width: 412)
 
             VStack(spacing: 12) {
                 TimerCard(store: store, ui: ui)
                     .frame(height: 132)
 
-                PanelCard(store: store, ui: ui)
+                PanelCard(store: store, ui: ui, monitor: monitor)
             }
         }
         .overlay(alignment: .bottom) {
@@ -39,6 +40,7 @@ struct ExpandedPanel: View {
 private struct PanelCard: View {
     @ObservedObject var store: AppStore
     @ObservedObject var ui: UIState
+    @ObservedObject var monitor: SystemMonitor
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -57,6 +59,7 @@ private struct PanelCard: View {
             switch ui.tab {
             case .streak:   StreakCard(store: store)
             case .stats:    StatsCard(store: store)
+            case .system:   SystemCard(monitor: monitor)
             case .settings: SettingsCard(store: store)
             }
         }
@@ -69,6 +72,7 @@ private struct PanelCard: View {
         switch ui.tab {
         case .streak:   return Theme.gold
         case .stats:    return Theme.focusAccent
+        case .system:   return Theme.shortAccent
         case .settings: return Theme.text2
         }
     }
@@ -87,6 +91,10 @@ private struct PanelCard: View {
             }
         case .stats:
             Text("\(store.totalFocusMinutes / 60)h total")
+                .font(Theme.ui(10.5))
+                .foregroundStyle(Theme.text3)
+        case .system:
+            Text("live")
                 .font(Theme.ui(10.5))
                 .foregroundStyle(Theme.text3)
         case .settings:
@@ -169,12 +177,38 @@ private struct StreakCard: View {
 
     private let columns = 10
     private let rows = 3
-    private let cell: CGFloat = 26
+    private let cell: CGFloat = 30
     private let gap: CGFloat = 7
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             grid
+
+            if store.totalSessions == 0 {
+                Text("Finish a focus session and today lights up.")
+                    .font(Theme.ui(11))
+                    .foregroundStyle(Theme.text3)
+            }
+
+            MeterRow(symbol: "target",
+                     label: "Goal",
+                     detail: "\(store.today.sessions) / \(store.settings.dailyGoal) today",
+                     fraction: store.goalProgress,
+                     tint: store.goalProgress >= 1 ? Theme.shortAccent : Theme.focusAccent)
+
+            MeterRow(symbol: "moon.stars.fill",
+                     label: "Cycle",
+                     detail: "\(store.cyclePosition % max(store.settings.sessionsPerCycle, 1)) / \(store.settings.sessionsPerCycle) to long break",
+                     fraction: Double(store.cyclePosition % max(store.settings.sessionsPerCycle, 1))
+                        / Double(max(store.settings.sessionsPerCycle, 1)),
+                     tint: Theme.longAccent)
+
+            MeterRow(symbol: "flame.fill",
+                     label: "Streak",
+                     detail: "\(store.currentStreak)d now · best \(store.bestStreak)d",
+                     fraction: store.bestStreak > 0
+                        ? Double(store.currentStreak) / Double(store.bestStreak) : 0,
+                     tint: Theme.gold)
 
             Spacer(minLength: 0)
 
@@ -206,7 +240,7 @@ private struct StreakCard: View {
                     .foregroundStyle(Theme.text3)
                 ForEach(0..<5, id: \.self) { level in
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Theme.heat(level, accent: Theme.focusAccent))
+                        .fill(Theme.heat(level, accent: store.accent))
                         .frame(width: 9, height: 9)
                 }
                 Text("More")
@@ -226,7 +260,7 @@ private struct StreakCard: View {
                         let entry = history[row * columns + col]
                         StreakCell(date: entry.date, stat: entry.stat,
                                    isToday: Calendar.current.isDateInToday(entry.date),
-                                   size: cell)
+                                   size: cell, accent: store.accent)
                     }
                 }
             }
@@ -239,6 +273,7 @@ private struct StreakCell: View {
     let stat: DayStat
     let isToday: Bool
     let size: CGFloat
+    let accent: Color
 
     @State private var hovering = false
 
@@ -251,7 +286,7 @@ private struct StreakCell: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: 7, style: .continuous)
-            .fill(Theme.heat(stat.sessions, accent: Theme.focusAccent))
+            .fill(Theme.heat(stat.sessions, accent: accent))
             .frame(width: size, height: size)
             .overlay(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -266,7 +301,7 @@ private struct StreakCell: View {
 
 // MARK: - Stats
 
-private struct StatsCard: View {
+struct StatsCard: View {
     @ObservedObject var store: AppStore
 
     private func hm(_ minutes: Int) -> String {
@@ -274,6 +309,13 @@ private struct StatsCard: View {
     }
 
     var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            content
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
                 StatTile(value: "\(store.today.sessions)", caption: "Today",
@@ -288,10 +330,90 @@ private struct StatsCard: View {
                          symbol: "checkmark.seal.fill", tint: Theme.longAccent)
             }
 
+            Text("LAST 7 DAYS")
+                .font(Theme.ui(9, .bold))
+                .kerning(0.7)
+                .foregroundStyle(Theme.text3)
             WeekChart(store: store)
-            Spacer(minLength: 0)
+
+            if store.hourHistogram.contains(where: { $0 > 0 }) {
+                Text("WHEN YOU FOCUS")
+                    .font(Theme.ui(9, .bold))
+                    .kerning(0.7)
+                    .foregroundStyle(Theme.text3)
+                    .padding(.top, 2)
+                HourChart(store: store)
+            }
+
+            if !store.todaysLog.isEmpty {
+                Text("TODAY'S SESSIONS")
+                    .font(Theme.ui(9, .bold))
+                    .kerning(0.7)
+                    .foregroundStyle(Theme.text3)
+                    .padding(.top, 2)
+
+                VStack(spacing: 4) {
+                    ForEach(store.todaysLog) { record in
+                            HStack(spacing: 8) {
+                                Text(Self.clock(record.finishedAt))
+                                    .font(Theme.mono(10, .semibold))
+                                    .foregroundStyle(Theme.focusAccent)
+                                Text(record.taskTitle)
+                                    .font(Theme.ui(11))
+                                    .foregroundStyle(Theme.text2)
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text("\(record.minutes)m")
+                                    .font(Theme.mono(10))
+                                    .foregroundStyle(Theme.text3)
+                            }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Theme.row,
+                                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+extension StatsCard {
+    static func clock(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        return f.string(from: date)
+    }
+}
+
+/// Sessions by hour of day, across everything logged so far.
+private struct HourChart: View {
+    @ObservedObject var store: AppStore
+
+    var body: some View {
+        let counts = store.hourHistogram
+        let peak = max(counts.max() ?? 0, 1)
+        return HStack(alignment: .bottom, spacing: 2) {
+            ForEach(0..<24, id: \.self) { hour in
+                VStack(spacing: 3) {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(counts[hour] > 0
+                              ? store.accent.opacity(0.4 + 0.6 * Double(counts[hour]) / Double(peak))
+                              : Theme.emptyCell)
+                        .frame(height: max(3, 26 * CGFloat(counts[hour]) / CGFloat(peak)))
+                    if hour % 6 == 0 {
+                        Text("\(hour)")
+                            .font(Theme.ui(7.5, .semibold))
+                            .foregroundStyle(Theme.text3)
+                    } else {
+                        Spacer().frame(height: 9)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .help("\(counts[hour]) session\(counts[hour] == 1 ? "" : "s") at \(hour):00")
+            }
+        }
+        .frame(height: 40, alignment: .bottom)
     }
 }
 
@@ -306,7 +428,7 @@ private struct WeekChart: View {
                 VStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(entry.stat.sessions > 0
-                              ? Theme.focusAccent.opacity(0.35 + 0.65 * Double(entry.stat.sessions) / Double(peak))
+                              ? store.accent.opacity(0.35 + 0.65 * Double(entry.stat.sessions) / Double(peak))
                               : Theme.emptyCell)
                         .frame(height: max(4, 30 * CGFloat(entry.stat.sessions) / CGFloat(peak)))
                     Text(Self.letter(entry.date))
@@ -344,13 +466,73 @@ private struct SettingsCard: View {
                                range: 5...60, step: 5, unit: "min", accent: Theme.longAccent)
                     StepperRow(label: "Sessions per cycle", value: $store.settings.sessionsPerCycle,
                                range: 2...8, step: 1, unit: "", accent: Theme.gold)
+                    StepperRow(label: "Daily goal", value: $store.settings.dailyGoal,
+                               range: 1...24, step: 1, unit: "", accent: Theme.shortAccent)
+
+                    HStack(spacing: 8) {
+                        Text("Chime")
+                            .font(Theme.ui(11.5))
+                            .foregroundStyle(Theme.text2)
+                        Spacer(minLength: 6)
+                        SegmentedPills(items: ChimeSound.allCases,
+                                       selection: $store.settings.chime,
+                                       label: { $0.title },
+                                       accent: store.accent)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Theme.row, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
 
                     ToggleRow(label: "Auto-start breaks", isOn: $store.settings.autoStartBreaks)
                     ToggleRow(label: "Auto-start next focus", isOn: $store.settings.autoStartFocus)
                     ToggleRow(label: "Collapse when a session starts", isOn: $store.settings.collapseOnStart)
-                    ToggleRow(label: "Chime on phase change", isOn: $store.settings.playSound)
                     ToggleRow(label: "Notifications", isOn: $store.settings.showNotifications)
+                    ToggleRow(label: "CPU load in the menu bar", isOn: $store.settings.showLoadInMenuBar)
                     ToggleRow(label: "Open at login", isOn: $store.settings.launchAtLogin)
+
+                    HStack(spacing: 8) {
+                        Text("Accent")
+                            .font(Theme.ui(11.5))
+                            .foregroundStyle(Theme.text2)
+                        Spacer(minLength: 6)
+                        HStack(spacing: 6) {
+                            ForEach(Array(Theme.accents.enumerated()), id: \.offset) { index, colour in
+                                Button {
+                                    withAnimation(Theme.snappy) { store.settings.accentIndex = index }
+                                } label: {
+                                    Circle()
+                                        .fill(colour)
+                                        .frame(width: 14, height: 14)
+                                        .overlay(
+                                            Circle()
+                                                .strokeBorder(.white.opacity(
+                                                    store.settings.accentIndex == index ? 0.9 : 0),
+                                                              lineWidth: 2)
+                                                .padding(-3)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                                .help(Theme.accentNames[index])
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(Theme.row, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+                    HStack(spacing: 8) {
+                        Text("Position")
+                            .font(Theme.ui(11.5))
+                            .foregroundStyle(Theme.text2)
+                        Spacer(minLength: 6)
+                        SegmentedPills(items: IslandAlignment.allCases,
+                                       selection: $store.settings.alignment,
+                                       label: { $0.title },
+                                       accent: store.accent)
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Theme.row, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 }
                 .padding(.bottom, 2)
             }
