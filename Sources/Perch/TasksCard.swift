@@ -328,10 +328,12 @@ struct TasksCard: View {
         // The panel is still springing open and only just became key, so the responder
         // chain settles over the next few frames. Ask more than once rather than
         // dropping the first thing the user types.
-        for delay in [0.05, 0.25, 0.5] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                if !draftFocused { draftFocused = true }
-            }
+        // One attempt is enough: the delegate only raises the flag once the panel is
+        // actually key, so the responder chain is already settled by the time we get
+        // here. Repeated attempts used to restart the field's editing session and eat
+        // the next return.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            draftFocused = true
         }
     }
 

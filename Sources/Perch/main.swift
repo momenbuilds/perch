@@ -331,7 +331,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
             self.panel.makeKeyAndOrderFront(nil)
             withAnimation(Theme.openSpring) { self.ui.isPinned = true }
-            self.ui.wantsAddFocus = true
+            self.requestAddFocus()
+        }
+    }
+
+    /// Asking for the caret before the panel is key silently does nothing — SwiftUI
+    /// records the focus and AppKit then hands the responder chain elsewhere as the app
+    /// finishes activating. So wait for the window to actually become key, then ask.
+    private func requestAddFocus() {
+        guard let panel else { return }
+        if panel.isKeyWindow {
+            ui.wantsAddFocus = true
+            return
+        }
+        var token: NSObjectProtocol?
+        token = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main
+        ) { _ in
+            if let token { NotificationCenter.default.removeObserver(token) }
+            MainActor.assumeIsolated { self.ui.wantsAddFocus = true }
         }
     }
 
