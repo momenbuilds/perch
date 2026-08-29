@@ -34,24 +34,19 @@ struct IconButton: View {
     var help: String = ""
     let action: () -> Void
 
-    @State private var hovering = false
-
     var body: some View {
         Button(action: action) {
             ZStack {
                 Circle()
-                    .fill(hovering ? background.opacity(1.8) : background)
+                    .fill(background)
                     .frame(width: size, height: size)
                 Image(systemName: symbol)
                     .font(.system(size: glyph, weight: .semibold))
-                    .foregroundStyle(hovering ? Theme.text1 : tint)
+                    .foregroundStyle(tint)
             }
         }
         .buttonStyle(.plain)
         .help(help)
-        .scaleEffect(hovering ? 1.08 : 1)
-        .animation(Theme.snappy, value: hovering)
-        .onHover { hovering = $0 }
     }
 }
 
@@ -62,8 +57,6 @@ struct PlayButton: View {
     var size: CGFloat = 46
     let action: () -> Void
 
-    @State private var hovering = false
-
     var body: some View {
         Button(action: action) {
             ZStack {
@@ -71,7 +64,7 @@ struct PlayButton: View {
                     .fill(isRunning ? Theme.danger : accent)
                     .frame(width: size, height: size)
                     .shadow(color: (isRunning ? Theme.danger : accent).opacity(0.55),
-                            radius: hovering ? 14 : 8)
+                            radius: 8)
                 Image(systemName: isRunning ? "pause.fill" : "play.fill")
                     .font(.system(size: size * 0.34, weight: .black))
                     .foregroundStyle(.white)
@@ -79,9 +72,6 @@ struct PlayButton: View {
             }
         }
         .buttonStyle(.plain)
-        .scaleEffect(hovering ? 1.06 : 1)
-        .animation(Theme.snappy, value: hovering)
-        .onHover { hovering = $0 }
     }
 }
 

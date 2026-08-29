@@ -210,13 +210,9 @@ struct TasksCard: View {
             .padding(.bottom, 2)
         }
         .frame(maxHeight: .infinity)
-        // Soften the cut-off so a long list reads as continuing rather than clipped.
-        .mask(
-            LinearGradient(stops: [.init(color: .black, location: 0),
-                                   .init(color: .black, location: 0.9),
-                                   .init(color: .black.opacity(0), location: 1)],
-                           startPoint: .top, endPoint: .bottom)
-        )
+        // No fade mask here on purpose: masking the scroll view pushes the whole list
+        // through an offscreen pass on every frame, which is very visible once there
+        // are dozens of rows.
         // Dropping past the last row moves a task to the end.
         .onDrop(of: [.text], isTargeted: nil) { providers in
             handleDrop(providers, before: nil)
@@ -357,7 +353,6 @@ private struct GroupHeader: View {
     @ObservedObject var store: AppStore
     let group: TaskGroup?
 
-    @State private var hovering = false
     @State private var isRenaming = false
     @State private var renameText = ""
     @FocusState private var renameFocused: Bool
@@ -424,7 +419,6 @@ private struct GroupHeader: View {
         .padding(.bottom, 1)
         .opacity(0.85)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
         .onTapGesture(count: 2) {
             guard let group else { return }
             renameText = group.name
@@ -440,7 +434,6 @@ private struct TaskRow: View {
     let task: TodoItem
     @ObservedObject var store: AppStore
 
-    @State private var hovering = false
     @State private var isTarget = false
     @State private var isRenaming = false
     @State private var isEditingNote = false
@@ -455,52 +448,18 @@ private struct TaskRow: View {
         HStack(spacing: 10) {
             checkbox
 
-            VStack(alignment: .leading, spacing: 1) {
-                if isRenaming {
-                    TextField("Task", text: $renameText)
-                        .textFieldStyle(.plain)
-                        .font(Theme.ui(12.5, .semibold))
-                        .foregroundStyle(Theme.text1)
-                        .focused($fieldFocused)
-                        .onSubmit {
-                            store.rename(task.id, to: renameText)
-                            isRenaming = false
-                        }
-                } else {
-                    HStack(spacing: 5) {
-                        if task.isPriority {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(Theme.gold)
-                        }
-                        Text(task.title)
-                            .font(Theme.ui(12.5, .semibold))
-                            .foregroundStyle(task.isDone ? Theme.text2 : Theme.text1)
-                            .strikethrough(task.isDone, color: Theme.text3)
-                            // Real task names are longer than a demo's. Two lines beats
-                            // an ellipsis that hides which task this actually is.
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+            // The gestures live on the text, not the whole row: with them on the row
+            // they competed with every button in it, so clicks on the checkbox were
+            // swallowed and a single click could land in rename.
+            titleColumn
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    renameText = task.title
+                    isRenaming = true
+                    fieldFocused = true
                 }
-
-                if isEditingNote {
-                    TextField("Note", text: $noteText)
-                        .textFieldStyle(.plain)
-                        .font(Theme.ui(10.5))
-                        .foregroundStyle(Theme.text2)
-                        .focused($fieldFocused)
-                        .onSubmit {
-                            store.setNote(task.id, noteText)
-                            isEditingNote = false
-                        }
-                } else if !task.note.isEmpty {
-                    Text(task.note)
-                        .font(Theme.ui(10.5))
-                        .foregroundStyle(Theme.text3)
-                        .lineLimit(1)
-                }
-            }
+                .onTapGesture { store.select(task.id) }
+                .onDrag { NSItemProvider(object: task.id.uuidString as NSString) }
 
             Spacer(minLength: 6)
 
@@ -512,8 +471,6 @@ private struct TaskRow: View {
                 }
             }
 
-            // These stay visible rather than appearing on hover: the island is an
-            // overlay in an inactive app, where macOS does not deliver hover at all.
             HStack(spacing: 4) {
                 IconButton(symbol: task.isPriority ? "star.fill" : "star",
                            size: 22, glyph: 9,
@@ -521,7 +478,8 @@ private struct TaskRow: View {
                            help: task.isPriority ? "Remove priority" : "Mark as priority") {
                     withAnimation(Theme.contentSpring) { store.togglePriority(task.id) }
                 }
-                rowMenu
+                IconButton(symbol: "ellipsis", size: 22, glyph: 10,
+                           help: "More actions") { presentMenu() }
                 IconButton(symbol: "xmark", size: 22, glyph: 9,
                            tint: Theme.text3, help: "Delete task") {
                     withAnimation(Theme.contentSpring) { store.delete(task.id) }
@@ -534,8 +492,6 @@ private struct TaskRow: View {
                     Circle()
                         .fill(isTicking ? Theme.danger : store.accent)
                         .frame(width: 27, height: 27)
-                        .shadow(color: (isTicking ? Theme.danger : store.accent).opacity(0.5),
-                                radius: isTicking ? 8 : 0)
                     Image(systemName: isTicking ? "pause.fill" : "play.fill")
                         .font(.system(size: 10, weight: .black))
                         .foregroundStyle(.white)
@@ -564,15 +520,6 @@ private struct TaskRow: View {
                 .frame(height: 2)
                 .opacity(isTarget ? 1 : 0)
         }
-        .contentShape(Rectangle())
-        .onHover { value in withAnimation(Theme.snappy) { hovering = value } }
-        .onTapGesture(count: 2) {
-            renameText = task.title
-            isRenaming = true
-            fieldFocused = true
-        }
-        .onTapGesture { store.select(task.id) }
-        .onDrag { NSItemProvider(object: task.id.uuidString as NSString) }
         .onDrop(of: [.text], isTargeted: $isTarget) { providers in
             guard let provider = providers.first else { return false }
             _ = provider.loadObject(ofClass: NSString.self) { value, _ in
@@ -586,74 +533,88 @@ private struct TaskRow: View {
             }
             return true
         }
-        .contextMenu {
-            Button(task.isDone ? "Mark as not done" : "Mark as done") { store.toggleDone(task.id) }
-            Button(task.isPriority ? "Remove priority" : "Mark as priority") {
-                store.togglePriority(task.id)
-            }
-            Button("Edit note…") {
-                noteText = task.note
-                isEditingNote = true
-                fieldFocused = true
-            }
-            if !store.groups.isEmpty {
-                Menu("Move to") {
-                    Button("Inbox") { store.assign(task.id, to: nil) }
-                    ForEach(store.groups) { group in
-                        Button(group.name) { store.assign(task.id, to: group.id) }
+    }
+
+    private var titleColumn: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            if isRenaming {
+                TextField("Task", text: $renameText)
+                    .textFieldStyle(.plain)
+                    .font(Theme.ui(12.5, .semibold))
+                    .foregroundStyle(Theme.text1)
+                    .focused($fieldFocused)
+                    .onSubmit {
+                        store.rename(task.id, to: renameText)
+                        isRenaming = false
                     }
+            } else {
+                HStack(spacing: 5) {
+                    if task.isPriority {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(Theme.gold)
+                    }
+                    Text(task.title)
+                        .font(Theme.ui(12.5, .semibold))
+                        .foregroundStyle(task.isDone ? Theme.text2 : Theme.text1)
+                        .strikethrough(task.isDone, color: Theme.text3)
+                        // Real task names are longer than a demo's. Two lines beats an
+                        // ellipsis that hides which task this actually is.
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Divider()
-            Button("Focus on this") { store.toggle(task: task.id) }
-            Button("Delete", role: .destructive) { store.delete(task.id) }
+
+            if isEditingNote {
+                TextField("Note", text: $noteText)
+                    .textFieldStyle(.plain)
+                    .font(Theme.ui(10.5))
+                    .foregroundStyle(Theme.text2)
+                    .focused($fieldFocused)
+                    .onSubmit {
+                        store.setNote(task.id, noteText)
+                        isEditingNote = false
+                    }
+            } else if !task.note.isEmpty {
+                Text(task.note)
+                    .font(Theme.ui(10.5))
+                    .foregroundStyle(Theme.text3)
+                    .lineLimit(1)
+            }
         }
     }
 
-    /// Right-click menus do not open over a non-activating panel, so every action in
-    /// the context menu is also reachable from this button.
-    private var rowMenu: some View {
-        Menu {
-            Button(task.isDone ? "Mark as not done" : "Mark as done") { store.toggleDone(task.id) }
-            Button("Edit note…") {
-                noteText = task.note
-                isEditingNote = true
-                fieldFocused = true
-            }
-            Button("Rename…") {
+    private func presentMenu() {
+        var entries: [RowMenu.Entry] = [
+            .init(task.isDone ? "Mark as not done" : "Mark as done") {
+                store.toggleDone(task.id)
+            },
+            .init("Rename…") {
                 renameText = task.title
                 isRenaming = true
                 fieldFocused = true
-            }
-            Divider()
-            Menu("Move to") {
-                Button("Inbox") { store.assign(task.id, to: nil) }
-                ForEach(store.groups) { group in
-                    Button(group.name) { store.assign(task.id, to: group.id) }
-                }
-            }
-            Divider()
-            Button("Delete", role: .destructive) {
-                withAnimation(Theme.contentSpring) { store.delete(task.id) }
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(Theme.text3)
-                .frame(width: 22, height: 22)
-                .background(Color.white.opacity(0.06), in: Circle())
+            },
+            .init("Edit note…") {
+                noteText = task.note
+                isEditingNote = true
+                fieldFocused = true
+            },
+            .separator,
+            .init("Move to Inbox") { store.assign(task.id, to: nil) }
+        ]
+        for group in store.groups where group.id != task.groupID {
+            entries.append(.init("Move to \(group.name)") { store.assign(task.id, to: group.id) })
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: 22)
-        .help("More actions")
+        entries.append(.separator)
+        entries.append(.init("Delete", destructive: true) {
+            withAnimation(Theme.contentSpring) { store.delete(task.id) }
+        })
+        RowMenu.present(entries)
     }
 
     private var background: some View {
         RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
-            .fill(isActive && !task.isDone
-                  ? store.accent.opacity(0.14)
-                  : (hovering ? Theme.rowHover : Theme.row))
+            .fill(isActive && !task.isDone ? store.accent.opacity(0.14) : Theme.row)
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.rowRadius, style: .continuous)
                     .strokeBorder(isActive && !task.isDone
@@ -687,8 +648,6 @@ private struct PomodoroChip: View {
     let accent: Color
     let bump: () -> Void
 
-    @State private var hovering = false
-
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: "timer")
@@ -699,10 +658,7 @@ private struct PomodoroChip: View {
         .foregroundStyle(task.completed >= task.estimate ? accent : Theme.text3)
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
-        .background(
-            Capsule().fill(hovering ? Color.white.opacity(0.12) : Color.white.opacity(0.06))
-        )
-        .onHover { hovering = $0 }
+        .background(Capsule().fill(Color.white.opacity(0.06)))
         .onTapGesture(perform: bump)
         .help("Estimated pomodoros — click to add one")
     }

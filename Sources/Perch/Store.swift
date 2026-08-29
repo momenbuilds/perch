@@ -6,6 +6,17 @@ import UserNotifications
 
 /// The whole app state: the Pomodoro engine, the task list, the daily history and the
 /// user's settings. Persisted to Application Support and restored on launch.
+/// The countdown, kept apart from `AppStore` on purpose.
+///
+/// It changes every second. If it published through the store, every view observing the
+/// store — the whole task list included — would rebuild once a second, and the debounced
+/// save would rewrite the JSON file just as often. Only the clock and the progress
+/// hairline observe this.
+@MainActor
+final class Ticker: ObservableObject {
+    @Published var remaining: TimeInterval = 25 * 60
+}
+
 @MainActor
 final class AppStore: ObservableObject {
 
@@ -20,7 +31,14 @@ final class AppStore: ObservableObject {
 
     @Published private(set) var phase: Phase = .focus
     @Published private(set) var isRunning = false
-    @Published var remaining: TimeInterval = 25 * 60
+
+    let ticker = Ticker()
+
+    /// Proxied so the rest of the app is unchanged, but changes land on `ticker`.
+    var remaining: TimeInterval {
+        get { ticker.remaining }
+        set { ticker.remaining = newValue }
+    }
     /// Focus sessions finished since the last long break.
     @Published private(set) var cyclePosition = 0
 
@@ -32,7 +50,8 @@ final class AppStore: ObservableObject {
     /// Transient banner shown inside the island ("Break time", "Nice work" …).
     @Published var toast: String?
 
-    private var ticker: AnyCancellable?
+    private var pendingFocusSeconds = 0
+    private var tickBag: AnyCancellable?
     private var saveBag: AnyCancellable?
     private var toastWork: DispatchWorkItem?
 
@@ -197,15 +216,16 @@ final class AppStore: ObservableObject {
         if remaining <= 0 { remaining = phaseLength }
         if phase == .focus, activeTaskID == nil { activeTaskID = openTasks.first?.id }
         isRunning = true
-        ticker = Timer.publish(every: 1, on: .main, in: .common)
+        tickBag = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in self?.tick() }
     }
 
     func pause() {
+        flushFocusSeconds()
         isRunning = false
-        ticker?.cancel()
-        ticker = nil
+        tickBag?.cancel()
+        tickBag = nil
         save()
     }
 
@@ -251,18 +271,28 @@ final class AppStore: ObservableObject {
         if remaining == 0 { advance(counting: true) }
     }
 
-    /// Focus time is credited as it is earned, so a partially finished session still
-    /// shows up in today's minutes.
+    /// Focus time is still credited as it is earned, but in batches.
+    ///
+    /// Writing it into `days` every second republished the whole store once a second,
+    /// which rebuilt every view observing it and re-wrote the JSON file just as often.
     private func bankFocusSecond() {
-        let k = Self.key(Date())
-        var stat = days[k] ?? DayStat()
-        stat.focusSeconds += 1
-        days[k] = stat
+        pendingFocusSeconds += 1
+        if pendingFocusSeconds >= 60 { flushFocusSeconds() }
+    }
+
+    func flushFocusSeconds() {
+        guard pendingFocusSeconds > 0 else { return }
+        let key = Self.key(Date())
+        var stat = days[key] ?? DayStat()
+        stat.focusSeconds += pendingFocusSeconds
+        days[key] = stat
+        pendingFocusSeconds = 0
     }
 
     /// Internal rather than private so the self-test can drive whole cycles instantly.
     func advance(counting: Bool) {
         let finished = phase
+        flushFocusSeconds()
         pause()
 
         if finished == .focus, counting {
@@ -576,6 +606,7 @@ final class AppStore: ObservableObject {
 
     func save() {
         guard persists else { return }
+        flushFocusSeconds()
         Persistence.save(PersistedState(settings: settings,
                                         tasks: tasks,
                                         groups: groups,

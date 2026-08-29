@@ -13,7 +13,7 @@ struct ExpandedPanel: View {
                 .frame(width: 444)
 
             VStack(spacing: 12) {
-                TimerCard(store: store, ui: ui)
+                TimerCard(store: store, ui: ui, ticker: store.ticker)
                     .frame(height: 132)
 
                 PanelCard(store: store, ui: ui, monitor: monitor)
@@ -111,6 +111,7 @@ private struct PanelCard: View {
 private struct TimerCard: View {
     @ObservedObject var store: AppStore
     @ObservedObject var ui: UIState
+    @ObservedObject var ticker: Ticker
 
     private var phaseBinding: Binding<Phase> {
         Binding(get: { store.phase },
@@ -275,8 +276,6 @@ private struct StreakCell: View {
     let size: CGFloat
     let accent: Color
 
-    @State private var hovering = false
-
     private var label: String {
         let f = DateFormatter()
         f.dateFormat = "EEE d MMM"
@@ -292,9 +291,6 @@ private struct StreakCell: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .strokeBorder(isToday ? Color.white.opacity(0.55) : .clear, lineWidth: 1.5)
             )
-            .scaleEffect(hovering ? 1.14 : 1)
-            .animation(Theme.snappy, value: hovering)
-            .onHover { hovering = $0 }
             .help(label)
     }
 }
@@ -538,12 +534,6 @@ private struct SettingsCard: View {
                 }
                 .padding(.bottom, 2)
             }
-            .mask(
-                LinearGradient(stops: [.init(color: .black, location: 0),
-                                       .init(color: .black, location: 0.86),
-                                       .init(color: .black.opacity(0), location: 1)],
-                               startPoint: .top, endPoint: .bottom)
-            )
         }
     }
 }

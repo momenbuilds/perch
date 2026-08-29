@@ -77,6 +77,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] _ in self?.syncPanelSize() }
             .store(in: &bag)
 
+        // The countdown lives apart from the store so it cannot rebuild the task list
+        // every second; the menu-bar title still needs it.
+        store.ticker.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshStatusTitle() }
+            .store(in: &bag)
+
         syncMenuBarLoad()
 
         NotificationCenter.default.addObserver(
@@ -202,6 +209,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ui.isHovering != inside {
             withAnimation(Theme.openSpring) { ui.isHovering = inside }
         }
+        // Belt and braces: the window should never sit at panel size while the island
+        // is only showing the pill.
+        syncPanelSize()
     }
 
     /// Escape closes the panel. This one is local rather than a registered hot key

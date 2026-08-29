@@ -208,8 +208,6 @@ private struct ProcessRow: View {
     let tint: Color
     let peak: Double
 
-    @State private var hovering = false
-
     private var fraction: Double {
         guard peak > 0 else { return 0 }
         let value: Double
@@ -255,9 +253,7 @@ private struct ProcessRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
-        .background(hovering ? Theme.rowHover : Theme.row,
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .onHover { hovering = $0 }
+        .background(Theme.row, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .help("pid \(sample.pid)")
     }
 }

@@ -52,7 +52,7 @@ struct IslandView: View {
             ConfettiBurst(trigger: store.celebration, accent: store.accent)
                 .clipShape(shape)
 
-            trace
+            PhaseTrace(store: store, ticker: store.ticker, bottomRadius: bottomRadius)
         }
         .frame(width: size.width, height: size.height)
         .contentShape(shape)
@@ -65,25 +65,6 @@ struct IslandView: View {
         }
     }
 
-    // MARK: Phase hairline
-
-    private var trace: some View {
-        ProgressTrace(shoulder: Theme.shoulder,
-                      bottomRadius: bottomRadius - Theme.traceInset)
-            .trim(from: 0, to: max(store.progress, 0.0001))
-            .stroke(
-                LinearGradient(colors: [store.accent.opacity(0.75), store.accent],
-                               startPoint: .leading, endPoint: .trailing),
-                style: StrokeStyle(lineWidth: Theme.traceWidth, lineCap: .round, lineJoin: .round)
-            )
-            .shadow(color: store.accent.opacity(0.7), radius: 7)
-            .padding(Theme.traceInset)
-            .opacity(store.progress > 0.0005 ? 1 : 0)
-            // Not animated on purpose: progress advances by well under a pixel each
-            // second, and animating it would keep a redraw running continuously.
-            .animation(Theme.contentSpring, value: store.phase)
-    }
-
     // MARK: Content
 
     @ViewBuilder
@@ -92,7 +73,7 @@ struct IslandView: View {
             ExpandedPanel(store: store, ui: ui, monitor: monitor)
                 .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
         } else {
-            CollapsedPill(store: store)
+            CollapsedPill(store: store, ticker: store.ticker)
                 .transition(.opacity)
         }
     }
@@ -100,8 +81,11 @@ struct IslandView: View {
 
 // MARK: - Collapsed
 
+/// Only the pill and the hairline observe the ticker, so a running session redraws
+/// those and nothing else — not the task list behind them.
 struct CollapsedPill: View {
     @ObservedObject var store: AppStore
+    @ObservedObject var ticker: Ticker
 
     var body: some View {
         HStack(spacing: 11) {
@@ -141,6 +125,30 @@ struct CollapsedPill: View {
 }
 
 /// Four dots showing where you are in the current long-break cycle.
+/// The session hairline traced around the inside of the island.
+private struct PhaseTrace: View {
+    @ObservedObject var store: AppStore
+    @ObservedObject var ticker: Ticker
+    let bottomRadius: CGFloat
+
+    var body: some View {
+        ProgressTrace(shoulder: Theme.shoulder,
+                      bottomRadius: bottomRadius - Theme.traceInset)
+            .trim(from: 0, to: max(store.progress, 0.0001))
+            .stroke(
+                LinearGradient(colors: [store.accent.opacity(0.75), store.accent],
+                               startPoint: .leading, endPoint: .trailing),
+                style: StrokeStyle(lineWidth: Theme.traceWidth, lineCap: .round, lineJoin: .round)
+            )
+            .shadow(color: store.accent.opacity(0.7), radius: 7)
+            .padding(Theme.traceInset)
+            .opacity(store.progress > 0.0005 ? 1 : 0)
+            // Not animated on purpose: progress advances by well under a pixel each
+            // second, and animating it would keep a redraw running continuously.
+            .animation(Theme.contentSpring, value: store.phase)
+    }
+}
+
 struct CycleDots: View {
     let position: Int
     let total: Int
