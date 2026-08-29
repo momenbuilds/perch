@@ -24,9 +24,11 @@ long one.
 Built with SwiftUI and AppKit. **No notch required:** the island is drawn, not detected,
 so it works identically on Intel MacBooks, external displays and Apple silicon — and it
 stays visible over full-screen apps. It is deliberately cheap: measured on an Intel
-MacBook Pro, **0.011% of CPU and 33 MB** sitting idle, and **0.017%** with a session
-running. Nothing is sampled while the panel is closed, and the pointer poll costs
-nothing while the pointer is still.
+MacBook Pro, **0.01% of CPU and 33 MB** sitting idle, and **0.02%** with a session
+running. Nothing is sampled while the panel is closed, the pointer poll costs nothing
+while the pointer is still, and the window shrinks to the size of the pill when the
+panel is shut — an always-on-top transparent window is blended by the compositor on
+every frame drawn beneath it, so the area it covers is the cost that actually matters.
 
 <p align="center">
   <img src="Assets/screenshot-panel.png" width="880" alt="The expanded panel">

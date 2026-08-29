@@ -34,11 +34,12 @@ struct IslandView: View {
             shape
                 .fill(Theme.bodyGradient)
                 .overlay(shape.stroke(Theme.bodyEdge, lineWidth: 1))
-                // Shadows are cast downward only: a halo above the top edge would
-                // break the illusion that the island is part of the bezel.
-                .shadow(color: .black.opacity(0.5), radius: 14, y: 10)
-                .shadow(color: store.isRunning ? store.accent.opacity(0.30) : .clear,
-                        radius: 22, y: 10)
+                // One shadow pass, cast downward only: a halo above the top edge would
+                // break the illusion that the island is part of the bezel, and every
+                // extra shadow is another offscreen render on a window the compositor
+                // already has to blend on every frame.
+                .shadow(color: store.isRunning ? store.accent.opacity(0.28) : .black.opacity(0.5),
+                        radius: store.isRunning ? 18 : 14, y: 10)
 
             content
                 .padding(.horizontal, 16)

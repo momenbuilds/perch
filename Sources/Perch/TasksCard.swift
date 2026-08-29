@@ -477,7 +477,10 @@ private struct TaskRow: View {
                             .font(Theme.ui(12.5, .semibold))
                             .foregroundStyle(task.isDone ? Theme.text2 : Theme.text1)
                             .strikethrough(task.isDone, color: Theme.text3)
-                            .lineLimit(1)
+                            // Real task names are longer than a demo's. Two lines beats
+                            // an ellipsis that hides which task this actually is.
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 

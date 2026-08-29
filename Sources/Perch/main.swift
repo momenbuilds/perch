@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastAlignment: IslandAlignment = .center
     private var statusMenu: NSMenu?
     private var addFocusObserver: NSObjectProtocol?
+    private var shrinkWork: DispatchWorkItem?
     private var lastHidden = false
     private var outsideClickMonitor: Any?
     private var insideClickMonitor: Any?
@@ -71,6 +72,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] _ in self?.refreshStatusTitle() }
             .store(in: &bag)
 
+        ui.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.syncPanelSize() }
+            .store(in: &bag)
+
         syncMenuBarLoad()
 
         NotificationCenter.default.addObserver(
@@ -89,9 +95,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Panel
 
+    /// The window is only ever as big as the island needs, because it is transparent and
+    /// always on top: every point of it is blended by the window server on every frame
+    /// drawn beneath it. Collapsed, that is a 404-point pill rather than a 872-point
+    /// panel — about an eighth of the area to composite.
+    private func panelSize(expanded: Bool) -> NSSize {
+        let island = expanded ? Theme.expandedSize : Theme.collapsedSize
+        return NSSize(width: island.width + margin.width * 2,
+                      height: island.height + margin.height)
+    }
+
     private func makePanel() {
-        let size = NSSize(width: Theme.expandedSize.width + margin.width * 2,
-                          height: Theme.expandedSize.height + margin.height)
+        let size = panelSize(expanded: false)
         panel = IslandPanel(contentRect: NSRect(origin: .zero, size: size))
 
         let host = NSHostingView(rootView: IslandView(store: store, ui: ui, monitor: monitor)
@@ -107,15 +122,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func reposition() {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
-        let size = panel.frame.size
+        applyPanelFrame(expanded: ui.isExpanded, screen: screen)
+        lastAlignment = store.settings.alignment
+    }
+
+    private func applyPanelFrame(expanded: Bool, screen: NSScreen? = nil) {
+        guard let panel,
+              let screen = screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        let size = panelSize(expanded: expanded)
         let x: CGFloat
         switch store.settings.alignment {
         case .leading:  x = screen.frame.minX
         case .center:   x = screen.frame.midX - size.width / 2
         case .trailing: x = screen.frame.maxX - size.width
         }
-        panel.setFrameOrigin(NSPoint(x: x, y: screen.frame.maxY - size.height))
-        lastAlignment = store.settings.alignment
+        let frame = NSRect(x: x, y: screen.frame.maxY - size.height,
+                           width: size.width, height: size.height)
+        guard panel.frame != frame else { return }
+        panel.setFrame(frame, display: false)
+    }
+
+    /// Grow before the island opens so nothing is clipped; shrink only once it has
+    /// finished closing.
+    private func syncPanelSize() {
+        guard panel != nil else { return }
+        shrinkWork?.cancel()
+        if ui.isExpanded {
+            applyPanelFrame(expanded: true)
+        } else {
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, !self.ui.isExpanded else { return }
+                self.applyPanelFrame(expanded: false)
+            }
+            shrinkWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: work)
+        }
     }
 
     // MARK: Click-through
